@@ -81,8 +81,21 @@ func (e *unknownProviderError) Error() string { return "unknown provider: " + e.
 // Root builds the cobra command tree for the app.
 func (a *App) Root() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "aicost",
-		Short:         "Aggregate AI provider usage & cost into one local dashboard",
+		Use:   "aicost",
+		Short: "Aggregate AI provider usage & cost into one local dashboard",
+		Long: "aicost pulls usage & cost from each AI provider's official usage API and\n" +
+			"prints one aggregated table — one glance instead of visiting 3-5 billing\n" +
+			"consoles. Snapshots are stored locally in SQLite so you can review trends.\n" +
+			"Pure CLI: no server, no telemetry, your spend data never leaves the machine.\n" +
+			"\n" +
+			adminKeyHelp,
+		Example: "  # Report the last 7 days across all enabled providers\n" +
+			"  export AICOST_ANTHROPIC_ADMIN_KEY=sk-ant-admin-...\n" +
+			"  export AICOST_OPENAI_ADMIN_KEY=sk-admin-...\n" +
+			"  aicost report --period=7d\n" +
+			"\n" +
+			"  # Show stored history without hitting the network\n" +
+			"  aicost history --period=month",
 		SilenceUsage:  true, // don't dump usage on runtime errors
 		SilenceErrors: true, // we print errors ourselves in Execute
 	}

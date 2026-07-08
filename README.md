@@ -1,59 +1,131 @@
 # aiCostTracker
 
-CLI-инструмент на Go (`aicost`), который собирает расходы и использование по
-нескольким AI-провайдерам (Anthropic, OpenAI и далее) в один локальный дашборд
-в терминале. Один взгляд вместо обхода 3–5 биллинг-консолей.
+CLI-инструмент на Go (бинарник `aicost`), который собирает расходы и
+использование по нескольким AI-провайдерам (Anthropic, OpenAI и далее) в один
+локальный дашборд в терминале. Один взгляд вместо обхода 3–5 биллинг-консолей.
 
 Соло pet-проект с приоритетом обучения Go. Чистый CLI: без сервера, без
-телеметрии, ≈ $0/мес. История расходов хранится локально в SQLite для трендов
-по времени.
+телеметрии, ≈ $0/мес. Данные о расходах наружу не уходят. История хранится
+локально в SQLite для трендов по времени.
 
-> Статус: **Этап 0 (bootstrap)** — скелет собран, `go build ./...` зелёный.
-> Реальная выборка usage начинается с Этапа 1. План — в [`docs/`](docs/).
+> Статус: **MVP (Фаза 1) завершён** — Anthropic + OpenAI, команды `report` /
+> `history` / `version`, локальные снапшоты в SQLite, кросс-компиляция без CGO.
+> Что дальше — в [`docs/POST_MVP_PLAN.md`](docs/POST_MVP_PLAN.md).
 
 ## Идея
 
 У каждого провайдера свой usage/billing-API, и обычно он требует **отдельного
 admin/org-level ключа** (не того, которым дёргают модели). `aicost` прячет эти
 различия за портом `ProviderUsageSource` — каждый провайдер это адаптер, — тянет
-usage за период, нормализует в общую модель и печатает сводную таблицу.
+usage/cost за период, нормализует в общую модель и печатает сводную таблицу.
+Стоимость в USD провайдеры отдают готовой, так что клиентская таблица цен не
+нужна.
 
-## Установка и запуск
+## Установка
 
 ```bash
-export PATH="$HOME/sdk/go/bin:$PATH"   # если go не в PATH
+# Через go install (нужен Go 1.23+):
+go install github.com/akomyagin/aiCostTracker/cmd/aicost@latest
 
-go build ./...
-go run ./cmd/aicost --version
-go run ./cmd/aicost                    # Этап 0: заглушка
-# Этап 1+: go run ./cmd/aicost report --period=this-month
+# Или собрать из исходников:
+git clone https://github.com/akomyagin/aiCostTracker
+cd aiCostTracker
+go build -o aicost ./cmd/aicost
+./aicost version
 ```
 
-## Конфигурация (с Этапа 1)
+Драйвер SQLite — `modernc.org/sqlite` (чистый Go), поэтому бинарник собирается
+**без CGO** под все целевые платформы:
 
-Файл `~/.config/aicost/config.yaml` (точный путь — через `os.UserConfigDir()`).
-Admin-ключи лучше задавать через окружение, чтобы не писать на диск:
+```bash
+CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -o aicost ./cmd/aicost
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o aicost.exe ./cmd/aicost
+CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -o aicost ./cmd/aicost
+```
+
+## Admin-ключ (обязательно) — это НЕ ключ для вызова моделей
+
+Usage/cost-эндпоинты — это **organization/admin API**. Обычный ключ, которым вы
+вызываете модели (`sk-ant-api...` у Anthropic, проектный `sk-...` у OpenAI), к
+ним доступа **не имеет**. Нужен отдельный **admin-ключ**, который выпускает
+владелец организации:
+
+| Провайдер | Где взять | Вид ключа |
+|---|---|---|
+| **Anthropic** | console.anthropic.com → Settings → Organization → Admin Keys | `sk-ant-admin...` |
+| **OpenAI** | platform.openai.com → Settings → Organization → Admin Keys | `sk-admin-...` |
+
+Задать ключ можно двумя способами (env переопределяет файл):
+
+```bash
+# Рекомендуется — через окружение, ключ не пишется на диск:
+export AICOST_ANTHROPIC_ADMIN_KEY=sk-ant-admin-...
+export AICOST_OPENAI_ADMIN_KEY=sk-admin-...
+```
+
+Ключ **никогда** не логируется, не печатается и не попадает ни в одно сообщение
+об ошибке.
+
+## Использование
+
+```bash
+# Отчёт по всем включённым провайдерам за последние 7 дней:
+aicost report --period=7d
+
+# Другие периоды:
+aicost report                 # последние 30 дней (по умолчанию)
+aicost report --period=month  # с 1-го числа текущего месяца по сегодня
+aicost report --period=today  # только сегодня
+
+# Показать сохранённую историю БЕЗ обращения к сети:
+aicost history --period=month
+
+# Полное объяснение admin-ключей есть прямо в справке:
+aicost --help
+aicost report --help
+```
+
+Значение `--period` — одно из: `Nd` (например `7d`, `30d`), `month` или `today`.
+
+## Конфигурационный файл
+
+Файл — `~/.config/aicost/config.yaml` (точный путь берётся через
+`os.UserConfigDir()`, кросс-платформенно; на macOS/Windows каталог другой). Файла
+может и не быть — тогда работаем только на env-переменных. Пример:
 
 ```yaml
+# ~/.config/aicost/config.yaml
+http_timeout: 30s
+max_retries: 4
+db_path: ""              # пусто = os.UserConfigDir()/aicost/history.db
+
 providers:
   anthropic:
     enabled: true
-    admin_key: ""   # или env AICOST_ANTHROPIC_ADMIN_KEY (admin/org-ключ, не ключ модели!)
+    admin_key: ""        # лучше через env AICOST_ANTHROPIC_ADMIN_KEY (admin/org-ключ, НЕ ключ модели!)
+    base_url: ""         # пусто = дефолт провайдера; override для прокси/тестов
   openai:
     enabled: true
-    admin_key: ""   # или env AICOST_OPENAI_ADMIN_KEY
+    admin_key: ""        # или env AICOST_OPENAI_ADMIN_KEY
+    base_url: ""
 ```
+
+Файл БД истории git-ignored (личные данные о расходах).
 
 ## Дорожная карта
 
-- **Фаза 1 (MVP):** Anthropic + OpenAI, команда `report`, локальные снапшоты в SQLite.
-- **Фаза 2:** больше провайдеров, тренды/графики в терминале, алерты по порогу,
-  `--format=json`. См. [`docs/POST_MVP_PLAN.md`](docs/POST_MVP_PLAN.md).
+- **Фаза 1 (MVP, завершена):** Anthropic + OpenAI, команды `report`/`history`,
+  локальные снапшоты в SQLite, кросс-компиляция без CGO.
+- **Фаза 2:** больше провайдеров (Google Gemini, OpenRouter), тренды/графики в
+  терминале, алерты по порогу расхода, `--format=json`. Полноценный релизный
+  пайплайн (goreleaser/CI-артефакты) — тоже кандидат Фазы 2; для MVP достаточно
+  `go build` с `GOOS`/`GOARCH`. См. [`docs/POST_MVP_PLAN.md`](docs/POST_MVP_PLAN.md).
 
 ## Документация
 
 - [`docs/PLAN.md`](docs/PLAN.md) — видение и план верхнего уровня.
 - [`docs/TECHNICAL_PLAN.md`](docs/TECHNICAL_PLAN.md) — стек, архитектура, порт-адаптер, Этапы.
+- [`docs/API_NOTES.md`](docs/API_NOTES.md) — реальные форматы usage/cost API обоих провайдеров.
 - [`docs/POST_MVP_PLAN.md`](docs/POST_MVP_PLAN.md) — Фаза 2 и далее.
 
 ## Лицензия

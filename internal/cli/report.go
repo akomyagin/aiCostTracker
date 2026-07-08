@@ -1,13 +1,32 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 
 	"github.com/akomyagin/aiCostTracker/internal/provider"
 	"github.com/akomyagin/aiCostTracker/internal/report"
 
 	"github.com/spf13/cobra"
 )
+
+// adminKeyHintFor returns a leading "\n" + adminKeyHint when err looks like an
+// admin-key problem (missing key, or a 401/403 from the provider), so the user is
+// told they likely used the wrong KIND of key. Returns "" otherwise, so ordinary
+// network/parse errors don't get an irrelevant credentials lecture. The hint text
+// is a fixed constant — it never interpolates err, so no secret can reach it.
+func adminKeyHintFor(err error) string {
+	var se *provider.StatusError
+	if errors.As(err, &se) && (se.StatusCode == http.StatusUnauthorized || se.StatusCode == http.StatusForbidden) {
+		return "\n" + adminKeyHint
+	}
+	if strings.Contains(err.Error(), "admin_key is empty") {
+		return "\n" + adminKeyHint
+	}
+	return ""
+}
 
 // reportCmd fetches each enabled provider's usage for a period, persists the
 // snapshots, aggregates and prints a table.
@@ -18,9 +37,13 @@ func (a *App) reportCmd() *cobra.Command {
 		Use:   "report",
 		Short: "Fetch usage & cost for a period and print a table",
 		Long: "Fetch usage & cost from each enabled provider's admin API for the given\n" +
-			"period, store the snapshots locally, and print an aggregated table.\n\n" +
-			"Requires an admin/org-level key per provider (NOT a model API key) — set it\n" +
-			"in config.yaml or via AICOST_<PROVIDER>_ADMIN_KEY.",
+			"period, store the snapshots locally, and print an aggregated table.\n" +
+			"\n" +
+			adminKeyHelp,
+		Example: "  aicost report                 # last 30 days (default)\n" +
+			"  aicost report --period=7d     # last 7 days\n" +
+			"  aicost report --period=month  # 1st of this month through today\n" +
+			"  aicost report --period=today  # just today",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return a.runReport(cmd, period)
@@ -66,7 +89,7 @@ func (a *App) runReport(cmd *cobra.Command, period string) error {
 		}
 		snap, err := src.Fetch(ctx, window)
 		if err != nil {
-			return fmt.Errorf("fetch %s: %w", id, err)
+			return fmt.Errorf("fetch %s: %w%s", id, err, adminKeyHintFor(err))
 		}
 		if err := store.Save(ctx, snap); err != nil {
 			return fmt.Errorf("save %s snapshot: %w", id, err)

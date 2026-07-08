@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +143,50 @@ func TestHistoryCommand_ReadsStoreNoNetwork(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "openai") || !strings.Contains(out.String(), "$0.90") {
 		t.Errorf("history output = %q", out.String())
+	}
+}
+
+func TestReportCommand_AdminKeyHintOnAuthError(t *testing.T) {
+	// A 401/403 from the provider must trigger the admin-vs-model-key hint, and
+	// the surfaced error must never contain the admin key itself.
+	const secret = "sk-ant-admin-super-secret"
+	fp := &fakeProvider{
+		id:  "anthropic",
+		err: fmt.Errorf("provider anthropic: cost report: %w", &provider.StatusError{StatusCode: 401, Retryable: false, Body: "unauthorized"}),
+	}
+	app, _, _ := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+	err := run(app, "report", "--period", "today")
+	if err == nil {
+		t.Fatal("expected fetch error")
+	}
+	if !strings.Contains(err.Error(), "ADMIN") || !strings.Contains(err.Error(), "Admin Keys") {
+		t.Errorf("auth error missing admin-key hint: %q", err.Error())
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("admin key leaked into error: %q", err.Error())
+	}
+}
+
+func TestReportCommand_EmptyKeyErrorGetsHint(t *testing.T) {
+	// The provider's own "admin_key is empty" error must also carry the hint.
+	fp := &fakeProvider{id: "anthropic", err: errors.New("provider anthropic: admin_key is empty (set AICOST_ANTHROPIC_ADMIN_KEY or config)")}
+	app, _, _ := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+	err := run(app, "report", "--period", "today")
+	if err == nil || !strings.Contains(err.Error(), "Admin Keys") {
+		t.Fatalf("want admin-key hint on empty-key error, got %v", err)
+	}
+}
+
+func TestReportCommand_NoHintOnNetworkError(t *testing.T) {
+	// An ordinary network error must NOT get the credentials lecture.
+	fp := &fakeProvider{id: "anthropic", err: errors.New("fetch: dial tcp: connection refused")}
+	app, _, _ := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+	err := run(app, "report", "--period", "today")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), "Admin Keys") {
+		t.Errorf("network error wrongly got admin-key hint: %q", err.Error())
 	}
 }
 
