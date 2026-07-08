@@ -11,8 +11,22 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
+
+// maxPaginationPages bounds every provider adapter's cursor-following loop. A
+// malfunctioning or hostile endpoint that always answers has_more=true would
+// otherwise spin forever; providers report daily buckets over bounded windows,
+// so a page count in the thousands is already far beyond any realistic report
+// (found by independent /code-review on Этап 1 — the loops had no cap at all).
+const maxPaginationPages = 1000
+
+// errTooManyPages is returned once a paginated fetch exceeds maxPaginationPages,
+// so callers see a clear cause instead of the request silently running forever.
+func errTooManyPages(endpoint string) error {
+	return fmt.Errorf("exceeded %d pages fetching %s (possible pagination loop)", maxPaginationPages, endpoint)
+}
 
 // Window is a half-open time range [Start, End) for which usage is requested.
 // Providers bucket usage by UTC day, so callers should pass day-aligned bounds.

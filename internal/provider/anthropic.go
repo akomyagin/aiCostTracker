@@ -88,7 +88,10 @@ func (a *Anthropic) fetchCosts(ctx context.Context, w Window) (map[dayModel]floa
 	out := make(map[dayModel]float64)
 	page := ""
 
-	for {
+	for pages := 0; ; pages++ {
+		if pages >= maxPaginationPages {
+			return nil, errTooManyPages("cost_report")
+		}
 		q := url.Values{}
 		q.Set("starting_at", w.Start.UTC().Format(time.RFC3339))
 		q.Set("ending_at", w.End.UTC().Format(time.RFC3339))
@@ -151,7 +154,10 @@ func (a *Anthropic) fetchTokens(ctx context.Context, w Window) (map[dayModel]tok
 	out := make(map[dayModel]tokenCounts)
 	page := ""
 
-	for {
+	for pages := 0; ; pages++ {
+		if pages >= maxPaginationPages {
+			return nil, errTooManyPages("usage_report/messages")
+		}
 		q := url.Values{}
 		q.Set("starting_at", w.Start.UTC().Format(time.RFC3339))
 		q.Set("ending_at", w.End.UTC().Format(time.RFC3339))

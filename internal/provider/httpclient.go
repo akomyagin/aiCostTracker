@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -138,8 +139,25 @@ func (c *retryClient) attempt(req *http.Request) ([]byte, error) {
 	return nil, &StatusError{
 		StatusCode: resp.StatusCode,
 		Retryable:  retryableStatus(resp.StatusCode),
-		Body:       excerpt(body, 256),
+		Body:       redactSecrets(excerpt(body, 256), req),
 	}
+}
+
+// redactSecrets scrubs any occurrence of the credential(s) sent on req from an
+// error-diagnostics string. The provider APIs we call never echo the caller's
+// key back, but a misbehaving or compromised endpoint could — and Body ends up
+// in CLI stderr, so this is defense in depth, not reliance on provider good
+// behavior. Covers both auth schemes used by adapters in this package: bearer
+// tokens (Authorization) and raw API-key headers (e.g. Anthropic's x-api-key).
+func redactSecrets(s string, req *http.Request) string {
+	if auth := req.Header.Get("Authorization"); auth != "" {
+		s = strings.ReplaceAll(s, strings.TrimPrefix(auth, "Bearer "), "[REDACTED]")
+		s = strings.ReplaceAll(s, auth, "[REDACTED]")
+	}
+	if key := req.Header.Get("x-api-key"); key != "" {
+		s = strings.ReplaceAll(s, key, "[REDACTED]")
+	}
+	return s
 }
 
 // sleepBackoff waits an exponentially growing, jittered delay, aborting early if

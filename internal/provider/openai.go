@@ -88,7 +88,10 @@ func (o *OpenAI) fetchCosts(ctx context.Context, w Window) (map[dayModel]float64
 	out := make(map[dayModel]float64)
 	page := ""
 
-	for {
+	for pages := 0; ; pages++ {
+		if pages >= maxPaginationPages {
+			return nil, errTooManyPages("costs")
+		}
 		q := url.Values{}
 		q.Set("start_time", strconv.FormatInt(w.Start.UTC().Unix(), 10))
 		q.Set("end_time", strconv.FormatInt(w.End.UTC().Unix(), 10))
@@ -144,7 +147,10 @@ func (o *OpenAI) fetchTokens(ctx context.Context, w Window) (map[dayModel]tokenC
 	out := make(map[dayModel]tokenCounts)
 	page := ""
 
-	for {
+	for pages := 0; ; pages++ {
+		if pages >= maxPaginationPages {
+			return nil, errTooManyPages("usage/completions")
+		}
 		q := url.Values{}
 		q.Set("start_time", strconv.FormatInt(w.Start.UTC().Unix(), 10))
 		q.Set("end_time", strconv.FormatInt(w.End.UTC().Unix(), 10))

@@ -122,6 +122,60 @@ func TestStatusError_Message(t *testing.T) {
 	}
 }
 
+// TestRetryClient_RedactsCredentialReflectedInErrorBody guards against a
+// misbehaving or compromised upstream that echoes the caller's own credential
+// back in an error response body (StatusError.Body is surfaced to CLI stderr,
+// so a naive excerpt would leak it). The real Anthropic/OpenAI APIs are not
+// known to do this — this is defense in depth, not a reaction to an observed
+// leak — but it directly exercises the redaction path in attempt(), which the
+// existing secret tests (fixed 403 bodies with no credential in them) do not.
+func TestRetryClient_RedactsCredentialReflectedInErrorBody(t *testing.T) {
+	const bearer = "sk-ant-admin-super-secret-token"
+	const apiKey = "sk-raw-api-key-secret"
+
+	buildReqWithAuth := func(ctx context.Context) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.test/x", nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		req.Header.Set("x-api-key", apiKey)
+		return req, nil
+	}
+
+	doer := &stubDoer{
+		statuses: []int{http.StatusForbidden},
+		bodies: []string{
+			fmt.Sprintf(`{"error":"forbidden for token %s and key %s"}`, bearer, apiKey),
+		},
+	}
+	c := newRetryClient(doer, 0)
+
+	_, err := c.doJSON(context.Background(), buildReqWithAuth)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var se *StatusError
+	if !errors.As(err, &se) {
+		t.Fatalf("want *StatusError, got %T", err)
+	}
+	if bytesContainsAny(se.Body, bearer, apiKey) {
+		t.Errorf("StatusError.Body leaked a credential: %q", se.Body)
+	}
+	if bytesContainsAny(se.Error(), bearer, apiKey) {
+		t.Errorf("StatusError.Error() leaked a credential: %q", se.Error())
+	}
+}
+
+func bytesContainsAny(s string, substrs ...string) bool {
+	for _, sub := range substrs {
+		if bytes.Contains([]byte(s), []byte(sub)) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestExcerpt(t *testing.T) {
 	long := fmt.Sprintf("%0300d", 0) // 300 chars
 	if got := excerpt([]byte(long), 256); len(got) != 256 {

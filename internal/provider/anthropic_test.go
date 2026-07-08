@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -132,6 +133,34 @@ func TestAnthropicFetch_MergesCostAndTokens(t *testing.T) {
 	// cost = 1.50 + 0.75.
 	if rec.CostUSD < 2.24 || rec.CostUSD > 2.26 {
 		t.Errorf("CostUSD = %v, want ~2.25", rec.CostUSD)
+	}
+}
+
+// TestAnthropicFetchCosts_PaginationLoopIsBounded guards against a
+// malfunctioning/hostile endpoint that always answers has_more=true: without a
+// page cap this would loop forever (found by independent /code-review on Этап
+// 1). The fake server always returns has_more=true with a fresh next_page
+// cursor, so the loop can only stop via maxPaginationPages.
+func TestAnthropicFetchCosts_PaginationLoopIsBounded(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"data":[],"has_more":true,"next_page":"cursor-%d"}`, calls)))
+	}))
+	defer srv.Close()
+
+	a := newAnthropicTestAdapter(t, srv.URL, 0)
+	w := Window{
+		Start: time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC),
+		End:   time.Date(2025, 8, 2, 0, 0, 0, 0, time.UTC),
+	}
+
+	_, err := a.Fetch(context.Background(), w)
+	if err == nil {
+		t.Fatal("expected an error once the pagination cap is exceeded")
+	}
+	if calls != maxPaginationPages {
+		t.Errorf("calls = %d, want exactly maxPaginationPages (%d)", calls, maxPaginationPages)
 	}
 }
 
