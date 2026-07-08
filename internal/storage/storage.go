@@ -2,10 +2,11 @@
 // can show trends over time, not just the current period. The DB file is git-
 // ignored (it is personal spend data) and lives under os.UserConfigDir().
 //
-// The concrete SQLite implementation lands in Этап 1 (see docs/TECHNICAL_PLAN.md
-// §6). The Store interface is declared here because there are two obvious
-// implementations from the start — SQLite and an in-memory fake for tests —
-// which justifies the port per the "interface on the second implementation" rule.
+// The concrete SQLite implementation uses modernc.org/sqlite (pure Go, no CGO),
+// so cross-compilation stays painless. The Store interface is declared here
+// because there are two obvious implementations — SQLite and an in-memory fake
+// for tests — which justifies the port per the "interface on the second
+// implementation" rule.
 package storage
 
 import (
@@ -27,11 +28,4 @@ type Store interface {
 
 	// Close releases the underlying handle.
 	Close() error
-}
-
-// Open opens (creating if needed) the SQLite-backed Store at path.
-//
-// Реализация — Этап 1.
-func Open(path string) (Store, error) {
-	return nil, nil
 }

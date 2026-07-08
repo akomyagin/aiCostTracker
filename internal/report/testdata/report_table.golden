@@ -1,0 +1,4 @@
+PROVIDER   INPUT TOKENS  OUTPUT TOKENS  COST (USD)
+anthropic  250           100            $2.50
+openai     100           40             $1.00
+TOTAL      350           140            $3.50

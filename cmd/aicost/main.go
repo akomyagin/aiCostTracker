@@ -9,6 +9,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/akomyagin/aiCostTracker/internal/cli"
 )
@@ -21,10 +22,10 @@ var (
 )
 
 func main() {
-	// Ctrl-C / SIGTERM cancels in-flight provider HTTP calls once wired in Этап 1.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// Ctrl-C / SIGTERM cancels in-flight provider HTTP calls (propagated via ctx
+	// through Fetch).
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	_ = ctx // consumed by commands starting in Этап 1
 
-	os.Exit(cli.Execute(os.Args[1:], os.Stdout, os.Stderr, version, commit, date))
+	os.Exit(cli.Execute(ctx, os.Args[1:], os.Stdout, os.Stderr, version, commit, date))
 }
