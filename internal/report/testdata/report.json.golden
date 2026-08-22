@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "rows": [
+    {
+      "provider": "anthropic",
+      "input_tokens": 250,
+      "output_tokens": 100,
+      "cost_usd": 2.5
+    },
+    {
+      "provider": "openai",
+      "input_tokens": 100,
+      "output_tokens": 40,
+      "cost_usd": 1
+    }
+  ],
+  "total": {
+    "input_tokens": 350,
+    "output_tokens": 140,
+    "cost_usd": 3.5
+  }
+}

@@ -96,6 +96,10 @@ aicost report --period=month --by-model
 aicost report --period=month --fail-on-alert   # exit≠0, если расход превысил порог
 aicost history --period=month --fail-on-alert
 
+# Машиночитаемый вывод (для своих дашбордов):
+aicost report --format=json                     # JSON вместо таблицы
+aicost history --period=month --format=json
+
 # Полное объяснение admin-ключей есть прямо в справке:
 aicost --help
 aicost report --help
@@ -111,6 +115,18 @@ aicost report --help
 точные диапазоны дат печатаются в заголовках таблиц. `report` из новых флагов
 поддерживает только `--by-model` (`--chart`/`--compare` потребовали бы второго
 платного запроса за прошлый период — для этого и существует история).
+
+Флаг `--format` (`table` по умолчанию, либо `json`) есть у обеих команд. При
+`--format=json` печатается версионируемый документ
+`{"schema_version":1,"rows":[…],"total":{…}}` — свёрнутые по провайдерам строки
+(`provider`, `input_tokens`, `output_tokens`, `cost_usd`) плюс итог; на этом
+контракте удобно строить свои дашборды без парсинга таблицы. Пока JSON
+поддерживает только этот «голый» вид и **несовместим** с `--by-model` (обе
+команды) и с `--chart`/`--compare` (`history`) — такая комбинация даёт явную
+ошибку. При отсутствии данных за период JSON остаётся валидным: печатается пустой
+документ (`"rows": []`, нулевой `total`), а не человекочитаемое сообщение «No
+usage data…». Строка ALERT при `--format=json` по-прежнему идёт в stderr и вывод
+JSON в stdout не искажает.
 
 Обе команды понимают `--fail-on-alert`: если задан порог `alert.monthly_usd` в
 конфиге и итоговый расход за период **строго больше** порога, в stderr печатается

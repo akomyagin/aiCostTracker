@@ -241,6 +241,19 @@ providers:
   проверяет. Хелперы `checkAlert`/`sumCost` — в `internal/cli/report.go`. Без
   новых зависимостей.
 
+- **Этап 8 — `--format=json` ✅** (ветка `stage-8/json-format`): реализует
+  POST_MVP §P4. Флаг `--format` (`table`/`json`) у `report`/`history`; валидация
+  до сети/БД, невалидное значение → ошибка со списком допустимых. Новая
+  `report.JSON(w, rows)` пишет версионируемый документ
+  `{"schema_version":1,"rows":[…],"total":{…}}` (json-теги добавлены прямо к `Row`,
+  `total` — отдельный struct без `provider`); `MarshalIndent` + финальный `\n`,
+  зафиксировано golden `report.json.golden`. В JSON только свёрнутые `Row`
+  (симметрично таблице); `--format=json` несовместим с `--by-model`/`--chart`/
+  `--compare`. No-data → валидный пустой документ (`"rows": []`, не `null`), а не
+  текстовое сообщение. Алерт работает как при table (stderr + exit-код), JSON в
+  stdout не искажается. Без новых зависимостей (`encoding/json` — stdlib);
+  существующие golden-файлы без изменений.
+
 Остальное — см. [`POST_MVP_PLAN.md`](./POST_MVP_PLAN.md).
 
 ## 7. Docker Compose — решение: НЕ заводим

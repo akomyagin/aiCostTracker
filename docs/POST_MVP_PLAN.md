@@ -130,7 +130,35 @@ CLI/storage/report при этом **не меняются** — это и ес�
 report ради Этапа 1. Кандидат-фикс: хранить как целое число микро-долларов
 (`int64`, `amount * 1_000_000`) вместо `float64`/`REAL`.
 
-### P4. `--format=json`
+### P4. `--format=json` ✅ (Этап 8, ветка `stage-8/json-format`)
+
+Реализовано. Фактические решения (см. план `docs/plans/stage-8-json-format.md`):
+
+- Флаг `--format` (`table` по умолчанию, либо `json`) у `report` и `history`;
+  невалидное значение → ошибка со списком допустимых (`table, json`), проверяется
+  **до** любых сетевых/БД-обращений.
+- `report.JSON(w, rows)` пишет документ
+  `{"schema_version":1,"rows":[{provider,input_tokens,output_tokens,cost_usd}],"total":{…}}`
+  (json-теги добавлены прямо к `Row`; `total` — отдельный маленький struct без
+  `provider`). `schema_version` начинается с `1` и поднимается при будущем
+  breaking-изменении контракта. `MarshalIndent` с 2-пробельным отступом +
+  финальный `\n`, зафиксировано golden-ом `testdata/report.json.golden`.
+- **Открытый продуктовый вопрос закрыт:** в JSON выводятся **только** свёрнутые
+  `Row` (симметрично дефолтной таблице), per-day/per-model НЕ включаются —
+  расширять при появлении реального потребителя.
+- `--format=json` **несовместим** с `--by-model` (обе команды) и с
+  `--chart`/`--compare` (`history`): JSON пока поддерживает только путь
+  `Aggregate`→`[]Row`. Комбинация даёт явную ошибку `--format=json cannot be
+  combined with …`.
+- No-data при `--format=json`: печатается валидный пустой документ
+  (`"rows": []`, нулевой `total`, `schema_version: 1`), а не человекочитаемый
+  текст. Пустой вход сериализуется как `[]`, не `null`.
+- Алерт (Этап 7) работает при `--format=json` идентично table: ALERT в stderr,
+  exit-код при `--fail-on-alert`, JSON в stdout не искажается.
+- Без новых зависимостей (`encoding/json` — stdlib). Существующие golden-файлы
+  без изменений.
+
+Исходный план (для истории):
 
 - Машиночитаемый вывод `report`/`history` со `schema_version` (версионируемый
   контракт, как JSON-вывод в `gitl`). Golden-тесты на схему.
