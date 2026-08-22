@@ -44,7 +44,7 @@ type UsageRecord struct {
 	Model        string    // model id if the provider reports it, else ""
 	InputTokens  int64     // 0 if the provider does not break tokens out
 	OutputTokens int64
-	CostUSD      float64 // cost in USD as reported/derived; 0 if unknown
+	CostMicros   int64 // cost in integer micro-USD (1 USD = 1_000_000); exact under accumulation, unlike float64 dollars
 }
 
 // Snapshot is the full result of one fetch for one provider over one Window:

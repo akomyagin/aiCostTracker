@@ -112,8 +112,8 @@ func TestOpenAIFetch_MergesCostAndTokens(t *testing.T) {
 	if rec.InputTokens != 1000 || rec.OutputTokens != 500 {
 		t.Errorf("tokens = (%d,%d), want (1000,500)", rec.InputTokens, rec.OutputTokens)
 	}
-	if rec.CostUSD < 0.17 || rec.CostUSD > 0.19 {
-		t.Errorf("CostUSD = %v, want ~0.18", rec.CostUSD)
+	if rec.CostMicros != 180_000 {
+		t.Errorf("CostMicros = %d, want 180_000 ($0.18)", rec.CostMicros)
 	}
 }
 

@@ -84,8 +84,8 @@ type openaiCostResponse struct {
 	NextPage string `json:"next_page"`
 }
 
-func (o *OpenAI) fetchCosts(ctx context.Context, w Window) (map[dayModel]float64, error) {
-	out := make(map[dayModel]float64)
+func (o *OpenAI) fetchCosts(ctx context.Context, w Window) (map[dayModel]int64, error) {
+	out := make(map[dayModel]int64)
 	page := ""
 
 	for pages := 0; ; pages++ {
@@ -117,7 +117,7 @@ func (o *OpenAI) fetchCosts(ctx context.Context, w Window) (map[dayModel]float64
 		for _, bucket := range resp.Data {
 			day := unixToUTCDay(bucket.StartTime)
 			for _, r := range bucket.Results {
-				out[dayModel{day: day, model: modelFromLineItem(r.LineItem)}] += r.Amount.Value
+				out[dayModel{day: day, model: modelFromLineItem(r.LineItem)}] += DollarsToMicros(r.Amount.Value)
 			}
 		}
 		if !resp.HasMore || resp.NextPage == "" {

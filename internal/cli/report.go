@@ -39,25 +39,30 @@ func validateFormat(format string) error {
 	}
 }
 
-// sumCost returns the total CostUSD across aggregated rows.
-func sumCost(rows []report.Row) float64 {
-	var t float64
+// sumCost returns the total cost in micro-USD across aggregated rows.
+func sumCost(rows []report.Row) int64 {
+	var t int64
 	for _, r := range rows {
-		t += r.CostUSD
+		t += r.CostMicros
 	}
 	return t
 }
 
-// checkAlert prints an ALERT line to stderr when total STRICTLY exceeds the
-// configured monthly threshold (threshold <= 0 = disabled; total == threshold is
-// not an alert). When failOnAlert is set and the threshold is exceeded it returns
-// a non-nil error so Execute exits non-zero. Call it AFTER the table/chart is
+// checkAlert prints an ALERT line to stderr when totalMicros STRICTLY exceeds
+// the configured monthly threshold (thresholdUSD <= 0 = disabled; equal is not
+// an alert). The threshold (a single user-entered dollar amount) is converted to
+// micros once and compared as int64 with int64, so the exact accumulated total
+// never round-trips through float and can't flip the strict inequality at the
+// boundary. When failOnAlert is set and the threshold is exceeded it returns a
+// non-nil error so Execute exits non-zero. Call it AFTER the table/chart is
 // rendered so the alert follows the output.
-func checkAlert(cmd *cobra.Command, threshold, total float64, failOnAlert bool) error {
-	if threshold <= 0 || total <= threshold {
+func checkAlert(cmd *cobra.Command, thresholdUSD float64, totalMicros int64, failOnAlert bool) error {
+	if thresholdUSD <= 0 || totalMicros <= provider.DollarsToMicros(thresholdUSD) {
 		return nil
 	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "ALERT: total spend $%.2f exceeds monthly threshold $%.2f\n", total, threshold)
+	fmt.Fprintf(cmd.ErrOrStderr(),
+		"ALERT: total spend $%.2f exceeds monthly threshold $%.2f\n",
+		provider.MicrosToDollars(totalMicros), thresholdUSD)
 	if failOnAlert {
 		return fmt.Errorf("monthly alert threshold exceeded")
 	}

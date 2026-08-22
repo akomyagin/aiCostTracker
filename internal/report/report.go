@@ -20,10 +20,10 @@ import (
 // the reported window. Per-model breakdown is a Фаза-2 concern; MVP rolls each
 // provider's records into a single row plus a grand total.
 type Row struct {
-	Provider     string  `json:"provider"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	CostUSD      float64 `json:"cost_usd"`
+	Provider     string
+	InputTokens  int64
+	OutputTokens int64
+	CostMicros   int64 // integer micro-USD (1 USD = 1e6); serialized as float64 dollars only via jsonRow
 }
 
 // Aggregate collapses raw per-day records into one Row per provider, summing
@@ -42,7 +42,7 @@ func Aggregate(records []provider.UsageRecord) []Row {
 		}
 		row.InputTokens += r.InputTokens
 		row.OutputTokens += r.OutputTokens
-		row.CostUSD += r.CostUSD
+		row.CostMicros += r.CostMicros
 	}
 
 	rows := make([]Row, 0, len(byProvider))
@@ -65,16 +65,16 @@ func Table(w io.Writer, rows []Row) error {
 
 	var (
 		totalIn, totalOut int64
-		totalCost         float64
+		totalCost         int64
 	)
 	for _, r := range rows {
 		if _, err := fmt.Fprintf(tw, "%s\t%d\t%d\t%s\n",
-			r.Provider, r.InputTokens, r.OutputTokens, formatUSD(r.CostUSD)); err != nil {
+			r.Provider, r.InputTokens, r.OutputTokens, formatUSD(r.CostMicros)); err != nil {
 			return err
 		}
 		totalIn += r.InputTokens
 		totalOut += r.OutputTokens
-		totalCost += r.CostUSD
+		totalCost += r.CostMicros
 	}
 
 	if _, err := fmt.Fprintf(tw, "TOTAL\t%d\t%d\t%s\n",
@@ -85,8 +85,19 @@ func Table(w io.Writer, rows []Row) error {
 	return tw.Flush()
 }
 
+// jsonRow is the wire shape of one row of the --format=json document. It exists
+// separately from Row because the JSON contract (§P4, schema_version 1) exposes
+// cost as float64 dollars under "cost_usd", while Row now carries integer
+// micro-dollars internally.
+type jsonRow struct {
+	Provider     string  `json:"provider"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+}
+
 // jsonTotal is the grand-total block of the JSON document: the same numeric
-// fields as Row but without a provider, summed across every row.
+// fields as jsonRow but without a provider, summed across every row.
 type jsonTotal struct {
 	InputTokens  int64   `json:"input_tokens"`
 	OutputTokens int64   `json:"output_tokens"`
@@ -97,7 +108,7 @@ type jsonTotal struct {
 // the field order in the output (encoding/json preserves struct order).
 type jsonDoc struct {
 	SchemaVersion int       `json:"schema_version"`
-	Rows          []Row     `json:"rows"`
+	Rows          []jsonRow `json:"rows"`
 	Total         jsonTotal `json:"total"`
 }
 
@@ -109,17 +120,30 @@ type jsonDoc struct {
 // Aggregate) plus a grand total. rows serializes as [] (never null) on empty
 // input. Output is deterministic so it can be golden-tested byte-for-byte.
 func JSON(w io.Writer, rows []Row) error {
-	// Copy into a freshly allocated slice so a nil input still marshals to []
-	// rather than null, keeping the contract stable for machine consumers.
-	out := make([]Row, 0, len(rows))
-	out = append(out, rows...)
+	// Build the wire rows in a freshly allocated slice so a nil input still
+	// marshals to [] rather than null, keeping the contract stable for machine
+	// consumers. Cost is converted from micro-USD to float64 dollars here, once
+	// per row (§P4: "cost_usd" is dollars).
+	out := make([]jsonRow, 0, len(rows))
+	var totalMicros int64
+	for _, r := range rows {
+		out = append(out, jsonRow{
+			Provider:     r.Provider,
+			InputTokens:  r.InputTokens,
+			OutputTokens: r.OutputTokens,
+			CostUSD:      provider.MicrosToDollars(r.CostMicros),
+		})
+		totalMicros += r.CostMicros
+	}
 
 	var total jsonTotal
-	for _, r := range out {
+	for _, r := range rows {
 		total.InputTokens += r.InputTokens
 		total.OutputTokens += r.OutputTokens
-		total.CostUSD += r.CostUSD
 	}
+	// Sum cost in int64 micros and convert once, so the total never accumulates
+	// float rounding error (which is the whole point of the micros migration).
+	total.CostUSD = provider.MicrosToDollars(totalMicros)
 
 	doc := jsonDoc{SchemaVersion: 1, Rows: out, Total: total}
 	b, err := json.MarshalIndent(doc, "", "  ")
@@ -140,7 +164,7 @@ type ModelRow struct {
 	Model        string // "" if the provider did not report a model
 	InputTokens  int64
 	OutputTokens int64
-	CostUSD      float64
+	CostMicros   int64 // integer micro-USD (1 USD = 1e6)
 }
 
 // AggregateByModel collapses raw per-day records into one ModelRow per
@@ -161,7 +185,7 @@ func AggregateByModel(records []provider.UsageRecord) []ModelRow {
 		}
 		row.InputTokens += r.InputTokens
 		row.OutputTokens += r.OutputTokens
-		row.CostUSD += r.CostUSD
+		row.CostMicros += r.CostMicros
 	}
 
 	rows := make([]ModelRow, 0, len(byKey))
@@ -189,7 +213,7 @@ func ModelTable(w io.Writer, rows []ModelRow) error {
 
 	var (
 		totalIn, totalOut int64
-		totalCost         float64
+		totalCost         int64
 	)
 	for _, r := range rows {
 		model := r.Model
@@ -197,12 +221,12 @@ func ModelTable(w io.Writer, rows []ModelRow) error {
 			model = "(unknown)"
 		}
 		if _, err := fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%s\n",
-			r.Provider, model, r.InputTokens, r.OutputTokens, formatUSD(r.CostUSD)); err != nil {
+			r.Provider, model, r.InputTokens, r.OutputTokens, formatUSD(r.CostMicros)); err != nil {
 			return err
 		}
 		totalIn += r.InputTokens
 		totalOut += r.OutputTokens
-		totalCost += r.CostUSD
+		totalCost += r.CostMicros
 	}
 
 	if _, err := fmt.Fprintf(tw, "TOTAL\t\t%d\t%d\t%s\n",
@@ -213,7 +237,11 @@ func ModelTable(w io.Writer, rows []ModelRow) error {
 	return tw.Flush()
 }
 
-// formatUSD renders a dollar amount with a leading $ and two decimals.
-func formatUSD(v float64) string {
-	return fmt.Sprintf("$%.2f", v)
+// formatUSD renders a micro-dollar amount with a leading $ and two decimals.
+// Conversion goes through float64 + Sprintf("%.2f") deliberately: it keeps
+// rounding byte-identical to the pre-micros renderer for every existing golden
+// fixture. Integer cent rounding ((m+5000)/10000) would be half-up, whereas
+// %.2f is IEEE round-half-even — e.g. $0.125 renders as $0.12, not $0.13.
+func formatUSD(m int64) string {
+	return fmt.Sprintf("$%.2f", provider.MicrosToDollars(m))
 }

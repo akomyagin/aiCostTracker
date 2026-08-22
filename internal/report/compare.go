@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+
+	"github.com/akomyagin/aiCostTracker/internal/provider"
 )
 
 // CompareTables renders two aggregated tables (current and previous period)
@@ -34,15 +36,16 @@ func CompareTables(w io.Writer, curLabel, prevLabel string, cur, prev []Row) err
 	curTotal := totalCost(cur)
 	prevTotal := totalCost(prev)
 	delta := curTotal - prevTotal
-	// Snap to whole cents so a sub-cent float residue (e.g. -0.0001 from summed
-	// rounding error) can't surface as a spurious "-$0.00"/"-0.0%" negative zero.
-	if math.Round(delta*100) == 0 {
+	// Snap to whole cents so a real sub-cent delta (e.g. -100 micros = -$0.0001)
+	// can't surface as a spurious "-$0.00"/"-0.0%" negative zero. (The float
+	// rounding residue this used to guard against no longer exists.)
+	if math.Round(provider.MicrosToDollars(delta)*100) == 0 {
 		delta = 0
 	}
 
 	pct := "n/a"
 	if prevTotal != 0 {
-		p := delta / prevTotal * 100
+		p := float64(delta) / float64(prevTotal) * 100
 		if math.Round(p*10) == 0 {
 			p = 0 // avoid a "-0.0%" artifact from a tiny negative float
 		}
@@ -56,20 +59,20 @@ func CompareTables(w io.Writer, curLabel, prevLabel string, cur, prev []Row) err
 	return nil
 }
 
-// totalCost sums CostUSD across rows.
-func totalCost(rows []Row) float64 {
-	var t float64
+// totalCost sums CostMicros across rows (integer micro-USD, exact).
+func totalCost(rows []Row) int64 {
+	var t int64
 	for _, r := range rows {
-		t += r.CostUSD
+		t += r.CostMicros
 	}
 	return t
 }
 
-// signedUSD renders a delta with an explicit leading sign, e.g. "+$1.50",
-// "-$0.75", "+$0.00".
-func signedUSD(v float64) string {
-	if v < 0 {
-		return "-" + formatUSD(-v)
+// signedUSD renders a micro-dollar delta with an explicit leading sign, e.g.
+// "+$1.50", "-$0.75", "+$0.00".
+func signedUSD(m int64) string {
+	if m < 0 {
+		return "-" + formatUSD(-m)
 	}
-	return "+" + formatUSD(v)
+	return "+" + formatUSD(m)
 }

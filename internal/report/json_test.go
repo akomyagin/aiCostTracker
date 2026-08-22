@@ -10,8 +10,8 @@ import (
 
 func TestJSON_Golden(t *testing.T) {
 	rows := []Row{
-		{Provider: "anthropic", InputTokens: 250, OutputTokens: 100, CostUSD: 2.5},
-		{Provider: "openai", InputTokens: 100, OutputTokens: 40, CostUSD: 1.0},
+		{Provider: "anthropic", InputTokens: 250, OutputTokens: 100, CostMicros: 2_500_000},
+		{Provider: "openai", InputTokens: 100, OutputTokens: 40, CostMicros: 1_000_000},
 	}
 
 	var buf bytes.Buffer
@@ -52,11 +52,18 @@ func TestJSON_EmptyRowsIsEmptyArrayNotNull(t *testing.T) {
 		t.Errorf("output must not contain null:\n%s", buf.String())
 	}
 
-	// And it must round-trip as valid JSON with a zeroed total.
+	// And it must round-trip as valid JSON with a zeroed total. Decode into a
+	// local shape that mirrors the wire contract (cost_usd is dollars), not the
+	// internal Row (which now carries micro-dollars and no json tags).
 	var doc struct {
-		SchemaVersion int   `json:"schema_version"`
-		Rows          []Row `json:"rows"`
-		Total         struct {
+		SchemaVersion int `json:"schema_version"`
+		Rows          []struct {
+			Provider     string  `json:"provider"`
+			InputTokens  int64   `json:"input_tokens"`
+			OutputTokens int64   `json:"output_tokens"`
+			CostUSD      float64 `json:"cost_usd"`
+		} `json:"rows"`
+		Total struct {
 			InputTokens  int64   `json:"input_tokens"`
 			OutputTokens int64   `json:"output_tokens"`
 			CostUSD      float64 `json:"cost_usd"`

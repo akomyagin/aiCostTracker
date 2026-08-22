@@ -17,27 +17,27 @@ const chartWidth = 40
 
 // DayTotal is total spend across all providers/models for one UTC day.
 type DayTotal struct {
-	Day     time.Time // UTC midnight
-	CostUSD float64
+	Day        time.Time // UTC midnight
+	CostMicros int64     // integer micro-USD (1 USD = 1e6)
 }
 
 // AggregateByDay sums records into one DayTotal per UTC day of the window,
 // including zero-spend days, so charts have no gaps. Records outside
 // [w.Start, w.End) are ignored. Result is ordered chronologically.
 func AggregateByDay(records []provider.UsageRecord, w provider.Window) []DayTotal {
-	byDay := map[time.Time]float64{}
+	byDay := map[time.Time]int64{}
 	for _, r := range records {
 		d := r.Day.UTC().Truncate(24 * time.Hour)
 		if d.Before(w.Start) || !d.Before(w.End) {
 			continue
 		}
-		byDay[d] += r.CostUSD
+		byDay[d] += r.CostMicros
 	}
 
 	var days []DayTotal
 	for d := w.Start; d.Before(w.End); d = d.AddDate(0, 0, 1) {
 		key := d.UTC().Truncate(24 * time.Hour)
-		days = append(days, DayTotal{Day: key, CostUSD: byDay[key]})
+		days = append(days, DayTotal{Day: key, CostMicros: byDay[key]})
 	}
 	return days
 }
@@ -53,23 +53,23 @@ func BarChart(w io.Writer, days []DayTotal) error {
 		return err
 	}
 
-	var max float64
+	var max int64
 	for _, d := range days {
-		if d.CostUSD > max {
-			max = d.CostUSD
+		if d.CostMicros > max {
+			max = d.CostMicros
 		}
 	}
 
 	for _, d := range days {
 		n := 0
-		if max > 0 && d.CostUSD > 0 {
-			n = int(math.Round(d.CostUSD / max * chartWidth))
+		if max > 0 && d.CostMicros > 0 {
+			n = int(math.Round(float64(d.CostMicros) / float64(max) * chartWidth))
 			if n < 1 {
 				n = 1
 			}
 		}
 		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\n",
-			d.Day.Format("2006-01-02"), formatUSD(d.CostUSD), strings.Repeat("█", n)); err != nil {
+			d.Day.Format("2006-01-02"), formatUSD(d.CostMicros), strings.Repeat("█", n)); err != nil {
 			return err
 		}
 	}

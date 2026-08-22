@@ -81,7 +81,7 @@ func TestReportCommand_FetchesSavesAndPrints(t *testing.T) {
 	fp := &fakeProvider{
 		id: "anthropic",
 		records: []provider.UsageRecord{
-			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostUSD: 1.25},
+			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostMicros: 1_250_000},
 		},
 	}
 	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -97,7 +97,7 @@ func TestReportCommand_FetchesSavesAndPrints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
-	if len(got) != 1 || got[0].CostUSD != 1.25 {
+	if len(got) != 1 || got[0].CostMicros != 1_250_000 {
 		t.Errorf("store rows = %+v", got)
 	}
 	// table printed
@@ -169,7 +169,7 @@ func TestHistoryCommand_ReadsStoreNoNetwork(t *testing.T) {
 	_ = store.Save(context.Background(), provider.Snapshot{
 		FetchedAt: time.Now(),
 		Records: []provider.UsageRecord{
-			{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt", InputTokens: 10, OutputTokens: 5, CostUSD: 0.9},
+			{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt", InputTokens: 10, OutputTokens: 5, CostMicros: 900_000},
 		},
 	})
 	// provider that would fail if called — history must NOT call it.
@@ -197,8 +197,8 @@ func saveRecords(t *testing.T, store storage.Store, recs ...provider.UsageRecord
 func TestHistoryCommand_Chart(t *testing.T) {
 	store := storage.NewFake()
 	saveRecords(t, store,
-		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 12), Model: "gpt-4o", InputTokens: 10, OutputTokens: 5, CostUSD: 0.5},
-		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt-4o", InputTokens: 20, OutputTokens: 8, CostUSD: 1.0},
+		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 12), Model: "gpt-4o", InputTokens: 10, OutputTokens: 5, CostMicros: 500_000},
+		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt-4o", InputTokens: 20, OutputTokens: 8, CostMicros: 1_000_000},
 	)
 	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
 	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -224,7 +224,7 @@ func TestHistoryCommand_Chart(t *testing.T) {
 func TestHistoryCommand_ByModel(t *testing.T) {
 	store := storage.NewFake()
 	saveRecords(t, store,
-		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt-4o", InputTokens: 10, OutputTokens: 5, CostUSD: 0.5},
+		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt-4o", InputTokens: 10, OutputTokens: 5, CostMicros: 500_000},
 	)
 	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
 	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -253,7 +253,7 @@ func TestHistoryCommand_ChartAndByModelCombined(t *testing.T) {
 	// shows daily totals while the table switches to per-model rows.
 	store := storage.NewFake()
 	saveRecords(t, store,
-		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt-4o", InputTokens: 10, OutputTokens: 5, CostUSD: 0.5},
+		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt-4o", InputTokens: 10, OutputTokens: 5, CostMicros: 500_000},
 	)
 	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
 	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -278,8 +278,8 @@ func TestHistoryCommand_Compare(t *testing.T) {
 	// previous full July [2025-07-01, 2025-08-01).
 	store := storage.NewFake()
 	saveRecords(t, store,
-		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 3.0},
-		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 7, 15), Model: "claude", CostUSD: 2.0},
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostMicros: 3_000_000},
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 7, 15), Model: "claude", CostMicros: 2_000_000},
 	)
 	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
 	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -302,7 +302,7 @@ func TestHistoryCommand_Compare(t *testing.T) {
 func TestHistoryCommand_CompareEmptyPrevious(t *testing.T) {
 	store := storage.NewFake()
 	saveRecords(t, store,
-		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 3.0},
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostMicros: 3_000_000},
 	)
 	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
 	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -317,7 +317,7 @@ func TestHistoryCommand_CompareEmptyPrevious(t *testing.T) {
 
 func TestHistoryCommand_CompareConflictingFlags(t *testing.T) {
 	store := storage.NewFake()
-	saveRecords(t, store, provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 1.0})
+	saveRecords(t, store, provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostMicros: 1_000_000})
 	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
 
 	for _, flag := range []string{"--by-model", "--chart"} {
@@ -350,8 +350,8 @@ func TestReportCommand_ByModel(t *testing.T) {
 	fp := &fakeProvider{
 		id: "anthropic",
 		records: []provider.UsageRecord{
-			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude-opus", InputTokens: 100, OutputTokens: 40, CostUSD: 1.25},
-			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude-haiku", InputTokens: 30, OutputTokens: 10, CostUSD: 0.20},
+			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude-opus", InputTokens: 100, OutputTokens: 40, CostMicros: 1_250_000},
+			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude-haiku", InputTokens: 30, OutputTokens: 10, CostMicros: 200_000},
 		},
 	}
 	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -427,9 +427,9 @@ func alertCfg(threshold float64) config.Config {
 }
 
 func TestReportCommand_Alert(t *testing.T) {
-	// One record with CostUSD 5.00 on "today" (2025-08-15) so report aggregates
+	// One record with cost $5.00 on "today" (2025-08-15) so report aggregates
 	// to a total of $5.00 regardless of threshold.
-	const total = 5.0
+	const totalMicros int64 = 5_000_000
 	tests := []struct {
 		name        string
 		threshold   float64
@@ -449,7 +449,7 @@ func TestReportCommand_Alert(t *testing.T) {
 			fp := &fakeProvider{
 				id: "anthropic",
 				records: []provider.UsageRecord{
-					{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostUSD: total},
+					{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostMicros: totalMicros},
 				},
 			}
 			app, out, errOut := testApp(alertCfg(tc.threshold), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -492,7 +492,7 @@ func TestReportCommand_AlertDefaultConfigUnchanged(t *testing.T) {
 	fp := &fakeProvider{
 		id: "anthropic",
 		records: []provider.UsageRecord{
-			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostUSD: 9.0},
+			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostMicros: 9_000_000},
 		},
 	}
 	app, out, errOut := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -508,7 +508,7 @@ func TestReportCommand_AlertDefaultConfigUnchanged(t *testing.T) {
 }
 
 func TestHistoryCommand_Alert(t *testing.T) {
-	const total = 5.0
+	const totalMicros int64 = 5_000_000
 	tests := []struct {
 		name        string
 		threshold   float64
@@ -526,7 +526,7 @@ func TestHistoryCommand_Alert(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := storage.NewFake()
 			saveRecords(t, store,
-				provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 14), Model: "claude", CostUSD: total},
+				provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 14), Model: "claude", CostMicros: totalMicros},
 			)
 			fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
 			app, out, errOut := testApp(alertCfg(tc.threshold), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -562,8 +562,8 @@ func TestHistoryCommand_AlertComparesCurrentPeriod(t *testing.T) {
 	// off the CURRENT total ($3.00 > 2.5), not the previous ($2.00 <= 2.5).
 	store := storage.NewFake()
 	saveRecords(t, store,
-		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 3.0},
-		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 7, 15), Model: "claude", CostUSD: 2.0},
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostMicros: 3_000_000},
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 7, 15), Model: "claude", CostMicros: 2_000_000},
 	)
 	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
 	app, _, errOut := testApp(alertCfg(2.5), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -581,8 +581,8 @@ func TestHistoryCommand_AlertCompareNoAlertFromPrevious(t *testing.T) {
 	// If the alert wrongly used the previous total it would fire; it must not.
 	store := storage.NewFake()
 	saveRecords(t, store,
-		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 2.0},
-		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 7, 15), Model: "claude", CostUSD: 3.0},
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostMicros: 2_000_000},
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 7, 15), Model: "claude", CostMicros: 3_000_000},
 	)
 	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
 	app, _, errOut := testApp(alertCfg(2.5), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -616,7 +616,7 @@ func TestReportCommand_FormatJSON(t *testing.T) {
 	fp := &fakeProvider{
 		id: "anthropic",
 		records: []provider.UsageRecord{
-			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostUSD: 1.25},
+			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostMicros: 1_250_000},
 		},
 	}
 	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -650,7 +650,7 @@ func TestReportCommand_FormatJSON(t *testing.T) {
 func TestHistoryCommand_FormatJSON(t *testing.T) {
 	store := storage.NewFake()
 	saveRecords(t, store,
-		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt", InputTokens: 10, OutputTokens: 5, CostUSD: 0.9},
+		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt", InputTokens: 10, OutputTokens: 5, CostMicros: 900_000},
 	)
 	// provider that fails if called — history must not touch the network.
 	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
@@ -693,7 +693,7 @@ func TestReportCommand_FormatJSONByModelConflict(t *testing.T) {
 
 func TestHistoryCommand_FormatJSONConflictingFlags(t *testing.T) {
 	store := storage.NewFake()
-	saveRecords(t, store, provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 1.0})
+	saveRecords(t, store, provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostMicros: 1_000_000})
 	for _, flag := range []string{"--by-model", "--chart", "--compare"} {
 		fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
 		app, _, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
@@ -766,7 +766,7 @@ func TestReportCommand_FormatJSONAlert(t *testing.T) {
 	fp := &fakeProvider{
 		id: "anthropic",
 		records: []provider.UsageRecord{
-			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostUSD: 5.0},
+			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostMicros: 5_000_000},
 		},
 	}
 	app, out, errOut := testApp(alertCfg(4.0), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})

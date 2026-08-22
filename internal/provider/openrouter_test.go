@@ -95,10 +95,10 @@ func TestOpenRouterFetch_NormalizesRows(t *testing.T) {
 
 	// Sorted by (Day, Model).
 	want := []UsageRecord{
-		{Provider: "openrouter", Day: openrouterDay1, Model: "anthropic/claude-3.5-sonnet", InputTokens: 500, OutputTokens: 250, CostUSD: 0.05},
-		{Provider: "openrouter", Day: openrouterDay1, Model: "openai/gpt-4o", InputTokens: 1000, OutputTokens: 500, CostUSD: 0.10},
-		{Provider: "openrouter", Day: openrouterDay2, Model: "anthropic/claude-3.5-sonnet", InputTokens: 3000, OutputTokens: 1500, CostUSD: 0.30},
-		{Provider: "openrouter", Day: openrouterDay2, Model: "openai/gpt-4o", InputTokens: 2000, OutputTokens: 1000, CostUSD: 0.20},
+		{Provider: "openrouter", Day: openrouterDay1, Model: "anthropic/claude-3.5-sonnet", InputTokens: 500, OutputTokens: 250, CostMicros: 50_000},
+		{Provider: "openrouter", Day: openrouterDay1, Model: "openai/gpt-4o", InputTokens: 1000, OutputTokens: 500, CostMicros: 100_000},
+		{Provider: "openrouter", Day: openrouterDay2, Model: "anthropic/claude-3.5-sonnet", InputTokens: 3000, OutputTokens: 1500, CostMicros: 300_000},
+		{Provider: "openrouter", Day: openrouterDay2, Model: "openai/gpt-4o", InputTokens: 2000, OutputTokens: 1000, CostMicros: 200_000},
 	}
 	for i, wr := range want {
 		got := snap.Records[i]
@@ -111,8 +111,8 @@ func TestOpenRouterFetch_NormalizesRows(t *testing.T) {
 		if got.InputTokens != wr.InputTokens || got.OutputTokens != wr.OutputTokens {
 			t.Errorf("rec[%d] tokens = (%d,%d), want (%d,%d)", i, got.InputTokens, got.OutputTokens, wr.InputTokens, wr.OutputTokens)
 		}
-		if got.CostUSD < wr.CostUSD-1e-9 || got.CostUSD > wr.CostUSD+1e-9 {
-			t.Errorf("rec[%d].CostUSD = %v, want %v", i, got.CostUSD, wr.CostUSD)
+		if got.CostMicros != wr.CostMicros {
+			t.Errorf("rec[%d].CostMicros = %d, want %d", i, got.CostMicros, wr.CostMicros)
 		}
 	}
 }
@@ -236,8 +236,10 @@ func TestOpenRouterFetch_DuplicateRowsAreSummed(t *testing.T) {
 		t.Fatalf("got %d records, want 1 (summed): %+v", len(snap.Records), snap.Records)
 	}
 	got := snap.Records[0]
-	if want := 0.12; got.CostUSD < want-1e-9 || got.CostUSD > want+1e-9 {
-		t.Errorf("CostUSD = %v, want %v", got.CostUSD, want)
+	// 0.10 + 0.02 accumulates to exactly 120_000 micros (in float64 the sum is
+	// 0.12000000000000001) — a drift regression the exact equality would catch.
+	if got.CostMicros != 120_000 {
+		t.Errorf("CostMicros = %d, want 120_000 ($0.12)", got.CostMicros)
 	}
 	if got.InputTokens != 1200 || got.OutputTokens != 600 {
 		t.Errorf("tokens = (%d,%d), want (1200,600)", got.InputTokens, got.OutputTokens)

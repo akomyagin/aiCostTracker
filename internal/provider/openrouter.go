@@ -160,7 +160,7 @@ func (o *OpenRouter) Fetch(ctx context.Context, w Window) (Snapshot, error) {
 			resp.Data.Metadata.RowCount, openrouterQueryLimit)
 	}
 
-	costs := make(map[dayModel]float64, len(resp.Data.Data))
+	costs := make(map[dayModel]int64, len(resp.Data.Data))
 	tokens := make(map[dayModel]tokenCounts, len(resp.Data.Data))
 	for _, row := range resp.Data.Data {
 		day, err := row.day()
@@ -168,7 +168,7 @@ func (o *OpenRouter) Fetch(ctx context.Context, w Window) (Snapshot, error) {
 			return Snapshot{}, fmt.Errorf("provider openrouter: analytics query: %w", err)
 		}
 		k := dayModel{day: day, model: row.Model}
-		costs[k] += row.TotalUsage
+		costs[k] += DollarsToMicros(row.TotalUsage)
 		tc := tokens[k]
 		tc.input += row.PromptToks
 		tc.output += row.CompleteToks

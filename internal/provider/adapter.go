@@ -40,11 +40,11 @@ type tokenCounts struct {
 	output int64
 }
 
-// mergeCostsAndTokens joins the cost map (USD per day/model) and the token map
-// into a stable, sorted slice of UsageRecord. Keys present in either map produce
-// a record; missing halves default to zero. Sorting keeps output deterministic
-// for golden tests and idempotent storage upserts.
-func mergeCostsAndTokens(providerID string, costs map[dayModel]float64, tokens map[dayModel]tokenCounts) []UsageRecord {
+// mergeCostsAndTokens joins the cost map (micro-USD per day/model) and the token
+// map into a stable, sorted slice of UsageRecord. Keys present in either map
+// produce a record; missing halves default to zero. Sorting keeps output
+// deterministic for golden tests and idempotent storage upserts.
+func mergeCostsAndTokens(providerID string, costs map[dayModel]int64, tokens map[dayModel]tokenCounts) []UsageRecord {
 	keys := make(map[dayModel]struct{}, len(costs)+len(tokens))
 	for k := range costs {
 		keys[k] = struct{}{}
@@ -62,7 +62,7 @@ func mergeCostsAndTokens(providerID string, costs map[dayModel]float64, tokens m
 			Model:        k.model,
 			InputTokens:  tc.input,
 			OutputTokens: tc.output,
-			CostUSD:      costs[k],
+			CostMicros:   costs[k],
 		})
 	}
 
