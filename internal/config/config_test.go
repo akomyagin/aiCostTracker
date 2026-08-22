@@ -74,6 +74,30 @@ providers:
 	}
 }
 
+func TestLoadFrom_EnvEnablesOpenRouter(t *testing.T) {
+	env := func(k string) string {
+		if k == "AICOST_OPENROUTER_ADMIN_KEY" {
+			return "sk-or-mgmt-secret"
+		}
+		return ""
+	}
+	cfg, err := loadFrom(filepath.Join(t.TempDir(), "absent.yaml"), env)
+	if err != nil {
+		t.Fatalf("loadFrom: %v", err)
+	}
+	pc := cfg.Providers["openrouter"]
+	if pc.AdminKey != "sk-or-mgmt-secret" {
+		t.Errorf("admin_key = %q, want sk-or-mgmt-secret", pc.AdminKey)
+	}
+	if !pc.Enabled {
+		t.Error("env key should enable openrouter")
+	}
+	got := cfg.EnabledProviders()
+	if len(got) != 1 || got[0] != "openrouter" {
+		t.Errorf("EnabledProviders = %v, want [openrouter]", got)
+	}
+}
+
 func TestLoadFrom_MissingFileUsesDefaults(t *testing.T) {
 	cfg, err := loadFrom(filepath.Join(t.TempDir(), "absent.yaml"), noEnv)
 	if err != nil {

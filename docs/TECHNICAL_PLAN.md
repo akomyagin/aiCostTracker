@@ -51,7 +51,7 @@ cmd/aicost/main.go        # тонкий: build-метаданные, signal.Not
 internal/
 ├── cli/         # сборка команд (report, history, version); Этап 0 — flag, Этап 1 — cobra
 ├── config/      # загрузка конфига os.UserConfigDir()/aicost/config.yaml + env; admin-ключи
-├── provider/    # ПОРТ ProviderUsageSource + адаптеры anthropic.go, openai.go (…google, openrouter — Фаза 2)
+├── provider/    # ПОРТ ProviderUsageSource + адаптеры anthropic.go, openai.go, openrouter.go (…google — Фаза 2)
 ├── storage/     # ПОРТ Store (SQLite + in-memory fake для тестов); снапшоты истории
 └── report/      # агрегация UsageRecord → Row, рендер таблицы (golden-тесты)
 ```
@@ -102,6 +102,7 @@ config.Load → для каждого enabled-провайдера: provider.Fet
 |---|---|---|---|
 | **Anthropic** | `GET /v1/organizations/cost_report` | `GET /v1/organizations/usage_report/messages` | Admin key (`sk-ant-admin…`), `x-api-key` + `anthropic-version: 2023-06-01`; окно — RFC 3339 |
 | **OpenAI** | `GET /v1/organization/costs` | `GET /v1/organization/usage/completions` | Admin key (`sk-admin-…`), `Authorization: Bearer`; окно — Unix-секунды |
+| **OpenRouter** (Этап 5, проверено 2026-08-22) | `POST /api/v1/analytics/query` (единый эндпоинт: cost **и** токены) | тот же запрос | Management key, `Authorization: Bearer`; окно — RFC 3339, грануляция `day`, без курсорной пагинации (`limit` + `truncated`) |
 
 Оба usage/cost-эндпоинта требуют **admin/org-level ключа**, а не ключа для вызова
 моделей — это заложено в схему конфига (§5, поле `admin_key`) и в UX (в
@@ -200,7 +201,11 @@ providers:
   пайплайн — кандидат Фазы 2 (POST_MVP_PLAN).
 
 ### Этапы 5+ — Фаза 2
-См. [`POST_MVP_PLAN.md`](./POST_MVP_PLAN.md).
+- **Этап 5 — адаптер OpenRouter ✅** (ветка `stage-5/openrouter-provider`):
+  третий провайдер за портом `ProviderUsageSource`, единый
+  `POST /api/v1/analytics/query`, management key. Детали — `API_NOTES.md §3`.
+
+Остальное — см. [`POST_MVP_PLAN.md`](./POST_MVP_PLAN.md).
 
 ## 7. Docker Compose — решение: НЕ заводим
 

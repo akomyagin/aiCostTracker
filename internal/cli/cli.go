@@ -69,6 +69,8 @@ func newProvider(id string, cfg config.Config) (provider.ProviderUsageSource, er
 		return provider.NewAnthropic(opts), nil
 	case "openai":
 		return provider.NewOpenAI(opts), nil
+	case "openrouter":
+		return provider.NewOpenRouter(opts), nil
 	default:
 		return nil, &unknownProviderError{id: id}
 	}

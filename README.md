@@ -54,6 +54,7 @@ Usage/cost-эндпоинты — это **organization/admin API**. Обычн�
 |---|---|---|
 | **Anthropic** | console.anthropic.com → Settings → Organization → Admin Keys | `sk-ant-admin...` |
 | **OpenAI** | platform.openai.com → Settings → Organization → Admin Keys | `sk-admin-...` |
+| **OpenRouter** | openrouter.ai → Settings → Management Keys | management key (не inference-ключ) |
 
 Задать ключ можно двумя способами (env переопределяет файл):
 
@@ -61,6 +62,7 @@ Usage/cost-эндпоинты — это **organization/admin API**. Обычн�
 # Рекомендуется — через окружение, ключ не пишется на диск:
 export AICOST_ANTHROPIC_ADMIN_KEY=sk-ant-admin-...
 export AICOST_OPENAI_ADMIN_KEY=sk-admin-...
+export AICOST_OPENROUTER_ADMIN_KEY=...
 ```
 
 Ключ **никогда** не логируется, не печатается и не попадает ни в одно сообщение
@@ -108,6 +110,10 @@ providers:
     enabled: true
     admin_key: ""        # или env AICOST_OPENAI_ADMIN_KEY
     base_url: ""
+  openrouter:
+    enabled: true
+    admin_key: ""        # или env AICOST_OPENROUTER_ADMIN_KEY (management key, НЕ inference-ключ!)
+    base_url: ""
 ```
 
 Файл БД истории git-ignored (личные данные о расходах).
@@ -116,8 +122,8 @@ providers:
 
 - **Фаза 1 (MVP, завершена):** Anthropic + OpenAI, команды `report`/`history`,
   локальные снапшоты в SQLite, кросс-компиляция без CGO.
-- **Фаза 2:** больше провайдеров (Google Gemini, OpenRouter), тренды/графики в
-  терминале, алерты по порогу расхода, `--format=json`. Полноценный релизный
+- **Фаза 2 (в работе):** OpenRouter ✅; далее больше провайдеров (Google Gemini),
+  тренды/графики в терминале, алерты по порогу расхода, `--format=json`. Полноценный релизный
   пайплайн (goreleaser/CI-артефакты) — тоже кандидат Фазы 2; для MVP достаточно
   `go build` с `GOOS`/`GOARCH`. См. [`docs/POST_MVP_PLAN.md`](docs/POST_MVP_PLAN.md).
 
@@ -125,7 +131,7 @@ providers:
 
 - [`docs/PLAN.md`](docs/PLAN.md) — видение и план верхнего уровня.
 - [`docs/TECHNICAL_PLAN.md`](docs/TECHNICAL_PLAN.md) — стек, архитектура, порт-адаптер, Этапы.
-- [`docs/API_NOTES.md`](docs/API_NOTES.md) — реальные форматы usage/cost API обоих провайдеров.
+- [`docs/API_NOTES.md`](docs/API_NOTES.md) — реальные форматы usage/cost API провайдеров (Anthropic, OpenAI, OpenRouter).
 - [`docs/POST_MVP_PLAN.md`](docs/POST_MVP_PLAN.md) — Фаза 2 и далее.
 
 ## Лицензия
