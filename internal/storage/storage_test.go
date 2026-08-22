@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -34,6 +35,21 @@ func factories(t *testing.T) []storeFactory {
 			name: "fake",
 			make: func(t *testing.T) Store { return NewFake() },
 		},
+	}
+}
+
+func TestOpen_CreatesMissingParentDir(t *testing.T) {
+	// A fresh system has no ~/.config/aicost/ yet; Open must create the whole
+	// parent chain rather than requiring it to pre-exist.
+	path := filepath.Join(t.TempDir(), "nested", "does", "not", "exist", "history.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open with missing parent dirs: %v", err)
+	}
+	defer s.Close()
+
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("db file not created at %s: %v", path, err)
 	}
 }
 

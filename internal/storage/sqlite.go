@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/akomyagin/aiCostTracker/internal/provider"
@@ -23,8 +25,13 @@ type sqliteStore struct {
 var _ Store = (*sqliteStore)(nil)
 
 // Open opens (creating if needed) the SQLite-backed Store at path and applies
-// the schema. The path's parent directory must already exist.
+// the schema. The parent directory is created if it doesn't exist yet (a fresh
+// system has no ~/.config/aicost/ until something creates it).
 func Open(path string) (Store, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create db directory for %s: %w", path, err)
+	}
+
 	// _pragma busy_timeout guards against transient "database is locked" on a
 	// concurrent run; foreign_keys is harmless-forward-looking.
 	dsn := path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
