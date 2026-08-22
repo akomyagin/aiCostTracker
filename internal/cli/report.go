@@ -28,12 +28,38 @@ func adminKeyHintFor(err error) string {
 	return ""
 }
 
+// sumCost returns the total CostUSD across aggregated rows.
+func sumCost(rows []report.Row) float64 {
+	var t float64
+	for _, r := range rows {
+		t += r.CostUSD
+	}
+	return t
+}
+
+// checkAlert prints an ALERT line to stderr when total STRICTLY exceeds the
+// configured monthly threshold (threshold <= 0 = disabled; total == threshold is
+// not an alert). When failOnAlert is set and the threshold is exceeded it returns
+// a non-nil error so Execute exits non-zero. Call it AFTER the table/chart is
+// rendered so the alert follows the output.
+func checkAlert(cmd *cobra.Command, threshold, total float64, failOnAlert bool) error {
+	if threshold <= 0 || total <= threshold {
+		return nil
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "ALERT: total spend $%.2f exceeds monthly threshold $%.2f\n", total, threshold)
+	if failOnAlert {
+		return fmt.Errorf("monthly alert threshold exceeded")
+	}
+	return nil
+}
+
 // reportCmd fetches each enabled provider's usage for a period, persists the
 // snapshots, aggregates and prints a table.
 func (a *App) reportCmd() *cobra.Command {
 	var (
-		period  string
-		byModel bool
+		period      string
+		byModel     bool
+		failOnAlert bool
 	)
 
 	cmd := &cobra.Command{
@@ -50,15 +76,16 @@ func (a *App) reportCmd() *cobra.Command {
 			"  aicost report --period=month --by-model  # break down by (provider, model)",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return a.runReport(cmd, period, byModel)
+			return a.runReport(cmd, period, byModel, failOnAlert)
 		},
 	}
 	cmd.Flags().StringVar(&period, "period", "30d", "period to report: Nd (e.g. 7d), month, or today")
 	cmd.Flags().BoolVar(&byModel, "by-model", false, "break the table down by (provider, model)")
+	cmd.Flags().BoolVar(&failOnAlert, "fail-on-alert", false, "exit non-zero when spend exceeds alert.monthly_usd")
 	return cmd
 }
 
-func (a *App) runReport(cmd *cobra.Command, period string, byModel bool) error {
+func (a *App) runReport(cmd *cobra.Command, period string, byModel, failOnAlert bool) error {
 	ctx := cmd.Context()
 
 	cfg, err := a.LoadConfig()
@@ -109,15 +136,18 @@ func (a *App) runReport(cmd *cobra.Command, period string, byModel bool) error {
 		return nil
 	}
 
+	rows := report.Aggregate(all)
+	total := sumCost(rows)
+
 	out := cmd.OutOrStdout()
 	if byModel {
 		if err := report.ModelTable(out, report.AggregateByModel(all)); err != nil {
 			return fmt.Errorf("render table: %w", err)
 		}
 	} else {
-		if err := report.Table(out, report.Aggregate(all)); err != nil {
+		if err := report.Table(out, rows); err != nil {
 			return fmt.Errorf("render table: %w", err)
 		}
 	}
-	return nil
+	return checkAlert(cmd, cfg.Alert.MonthlyUSD, total, failOnAlert)
 }

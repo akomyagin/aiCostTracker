@@ -92,6 +92,10 @@ aicost history --compare                 # этот период vs предыд
 # Разбивка по моделям есть и в report (тянет свежие данные из сети):
 aicost report --period=month --by-model
 
+# Алерт по порогу расхода (порог задаётся в config.yaml, см. ниже):
+aicost report --period=month --fail-on-alert   # exit≠0, если расход превысил порог
+aicost history --period=month --fail-on-alert
+
 # Полное объяснение admin-ключей есть прямо в справке:
 aicost --help
 aicost report --help
@@ -108,6 +112,15 @@ aicost report --help
 поддерживает только `--by-model` (`--chart`/`--compare` потребовали бы второго
 платного запроса за прошлый период — для этого и существует история).
 
+Обе команды понимают `--fail-on-alert`: если задан порог `alert.monthly_usd` в
+конфиге и итоговый расход за период **строго больше** порога, в stderr печатается
+строка `ALERT: total spend $X exceeds monthly threshold $Y`, а с флагом
+`--fail-on-alert` команда ещё и завершается с ненулевым кодом (для CI/cron). Без
+флага печатается только предупреждение, exit-код остаётся нулевым. Порог `0` (или
+отсутствие блока `alert`) отключает проверку. У `history --compare` алерт считается
+по **текущему** периоду, не по прошлому. Строка ALERT идёт в stderr и не влияет на
+таблицу/график в stdout.
+
 ## Конфигурационный файл
 
 Файл — `~/.config/aicost/config.yaml` (точный путь берётся через
@@ -119,6 +132,9 @@ aicost report --help
 http_timeout: 30s
 max_retries: 4
 db_path: ""              # пусто = os.UserConfigDir()/aicost/history.db
+
+alert:
+  monthly_usd: 200       # порог расхода; 0 или отсутствие блока = алерт выключен
 
 providers:
   anthropic:
@@ -143,8 +159,9 @@ providers:
   локальные снапшоты в SQLite, кросс-компиляция без CGO.
 - **Фаза 2 (в работе):** OpenRouter ✅; тренды/графики в терминале ✅
   (`--chart`/`--by-model`/`--compare` у `history`, `--by-model` у `report`);
-  далее больше провайдеров (Google Gemini), TUI (bubbletea), алерты по порогу
-  расхода, `--format=json`. Полноценный релизный пайплайн (goreleaser/CI-артефакты)
+  алерты по порогу расхода ✅ (`alert.monthly_usd` + `--fail-on-alert`); далее
+  больше провайдеров (Google Gemini), TUI (bubbletea),
+  `--format=json`. Полноценный релизный пайплайн (goreleaser/CI-артефакты)
   — тоже кандидат Фазы 2; для MVP достаточно `go build` с `GOOS`/`GOARCH`.
   См. [`docs/POST_MVP_PLAN.md`](docs/POST_MVP_PLAN.md).
 

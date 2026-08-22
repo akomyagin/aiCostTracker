@@ -78,7 +78,26 @@ CLI/storage/report при этом **не меняются** — это и ес�
   сравнении и `report --chart/--compare` тоже сознательно вне Этапа 6.
 - Именно ради этого история пишется в SQLite с Фазы 1, а не только текущий срез.
 
-### P3. Алерты по порогу расхода
+### P3. Алерты по порогу расхода ✅ (Этап 7, ветка `stage-7/spend-alert`)
+
+Реализовано. Фактические решения (см. план `docs/plans/stage-7-spend-alert.md`):
+
+- Конфиг: `Alert struct { MonthlyUSD float64 \`yaml:"monthly_usd"\` } \`yaml:"alert"\``,
+  валидация `>= 0` в `validate`. `MonthlyUSD == 0` (или отсутствие блока `alert`) —
+  алерт выключен, поведение `report`/`history` не меняется побайтово.
+- Срабатывает **строго при total > threshold** (равно — не алерт).
+- ALERT-строка в **stderr**: `ALERT: total spend $%.2f exceeds monthly threshold $%.2f`.
+  stdout (таблица/график) и golden-файлы не затрагиваются.
+- Флаг `--fail-on-alert` (bool, default false) у обеих команд: при превышении и
+  флаге команда печатает таблицу/график, затем ALERT-строку и возвращает ошибку
+  `monthly alert threshold exceeded` (ненулевой exit-код для CI/cron). Без флага —
+  только предупреждение в stderr, exit 0.
+- `history --compare`: алерт считается по **текущему** периоду (`cur`), не по прошлому.
+- No-data-ветка алерт не проверяет.
+- Общий хелпер `checkAlert`/`sumCost` в `internal/cli/report.go`, вызывается после
+  рендера в `runReport`/`runHistory`.
+
+Исходный план (для истории):
 
 - Порог в конфиге. Плейсхолдер-имена полей (финализировать при реализации):
   верхнеуровневый блок `alert:` в `Config` (`internal/config/config.go`) с полем

@@ -418,6 +418,182 @@ func TestReportCommand_NoHintOnNetworkError(t *testing.T) {
 	}
 }
 
+// alertCfg returns an enabled config with the monthly alert threshold set.
+func alertCfg(threshold float64) config.Config {
+	cfg := enabledCfg()
+	cfg.Alert.MonthlyUSD = threshold
+	return cfg
+}
+
+func TestReportCommand_Alert(t *testing.T) {
+	// One record with CostUSD 5.00 on "today" (2025-08-15) so report aggregates
+	// to a total of $5.00 regardless of threshold.
+	const total = 5.0
+	tests := []struct {
+		name        string
+		threshold   float64
+		failOnAlert bool
+		wantAlert   bool
+		wantErr     bool
+	}{
+		{name: "below total alerts", threshold: 4.0, wantAlert: true},
+		{name: "equal to total does not alert", threshold: 5.0, wantAlert: false},
+		{name: "above total does not alert", threshold: 6.0, wantAlert: false},
+		{name: "alert without fail flag returns nil", threshold: 4.0, wantAlert: true, failOnAlert: false},
+		{name: "alert with fail flag returns error", threshold: 4.0, failOnAlert: true, wantAlert: true, wantErr: true},
+		{name: "threshold zero disables alert", threshold: 0, wantAlert: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fp := &fakeProvider{
+				id: "anthropic",
+				records: []provider.UsageRecord{
+					{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostUSD: total},
+				},
+			}
+			app, out, errOut := testApp(alertCfg(tc.threshold), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+			args := []string{"report", "--period", "today"}
+			if tc.failOnAlert {
+				args = append(args, "--fail-on-alert")
+			}
+			err := run(app, args...)
+
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "monthly alert threshold exceeded") {
+					t.Fatalf("want threshold-exceeded error, got %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			gotAlert := strings.Contains(errOut.String(), "ALERT:")
+			if gotAlert != tc.wantAlert {
+				t.Errorf("alert in stderr = %v, want %v (stderr=%q)", gotAlert, tc.wantAlert, errOut.String())
+			}
+			if tc.wantAlert {
+				const wantLine = "ALERT: total spend $5.00 exceeds monthly threshold"
+				if !strings.Contains(errOut.String(), wantLine) {
+					t.Errorf("stderr = %q, want contains %q", errOut.String(), wantLine)
+				}
+			}
+			// The alert must never touch stdout.
+			if strings.Contains(out.String(), "ALERT") {
+				t.Errorf("alert leaked into stdout: %q", out.String())
+			}
+		})
+	}
+}
+
+func TestReportCommand_AlertDefaultConfigUnchanged(t *testing.T) {
+	// With no alert block (enabledCfg has MonthlyUSD == 0), stdout must be
+	// byte-identical to the run without the feature, and stderr stays empty.
+	fp := &fakeProvider{
+		id: "anthropic",
+		records: []provider.UsageRecord{
+			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostUSD: 9.0},
+		},
+	}
+	app, out, errOut := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+	if err := run(app, "report", "--period", "today"); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	if strings.Contains(errOut.String(), "ALERT") {
+		t.Errorf("unexpected alert with no threshold: %q", errOut.String())
+	}
+	if !strings.Contains(out.String(), "$9.00") {
+		t.Errorf("report table missing: %q", out.String())
+	}
+}
+
+func TestHistoryCommand_Alert(t *testing.T) {
+	const total = 5.0
+	tests := []struct {
+		name        string
+		threshold   float64
+		failOnAlert bool
+		wantAlert   bool
+		wantErr     bool
+	}{
+		{name: "below total alerts", threshold: 4.0, wantAlert: true},
+		{name: "equal to total does not alert", threshold: 5.0, wantAlert: false},
+		{name: "above total does not alert", threshold: 6.0, wantAlert: false},
+		{name: "alert with fail flag returns error", threshold: 4.0, failOnAlert: true, wantAlert: true, wantErr: true},
+		{name: "threshold zero disables alert", threshold: 0, wantAlert: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store := storage.NewFake()
+			saveRecords(t, store,
+				provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 14), Model: "claude", CostUSD: total},
+			)
+			fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+			app, out, errOut := testApp(alertCfg(tc.threshold), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+			args := []string{"history", "--period", "7d"}
+			if tc.failOnAlert {
+				args = append(args, "--fail-on-alert")
+			}
+			err := run(app, args...)
+
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "monthly alert threshold exceeded") {
+					t.Fatalf("want threshold-exceeded error, got %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			gotAlert := strings.Contains(errOut.String(), "ALERT:")
+			if gotAlert != tc.wantAlert {
+				t.Errorf("alert in stderr = %v, want %v (stderr=%q)", gotAlert, tc.wantAlert, errOut.String())
+			}
+			if strings.Contains(out.String(), "ALERT") {
+				t.Errorf("alert leaked into stdout: %q", out.String())
+			}
+		})
+	}
+}
+
+func TestHistoryCommand_AlertComparesCurrentPeriod(t *testing.T) {
+	// now = 2025-08-15. --period month: current = August ($3.00),
+	// previous = July ($2.00). Threshold 2.5 sits between them: alert must fire
+	// off the CURRENT total ($3.00 > 2.5), not the previous ($2.00 <= 2.5).
+	store := storage.NewFake()
+	saveRecords(t, store,
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 3.0},
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 7, 15), Model: "claude", CostUSD: 2.0},
+	)
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+	app, _, errOut := testApp(alertCfg(2.5), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "history", "--period", "month", "--compare"); err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if !strings.Contains(errOut.String(), "ALERT: total spend $3.00 exceeds monthly threshold $2.50") {
+		t.Errorf("compare alert must use current-period total, got stderr=%q", errOut.String())
+	}
+}
+
+func TestHistoryCommand_AlertCompareNoAlertFromPrevious(t *testing.T) {
+	// Mirror: threshold 2.5 with current $2.00 (August) and previous $3.00 (July).
+	// If the alert wrongly used the previous total it would fire; it must not.
+	store := storage.NewFake()
+	saveRecords(t, store,
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 2.0},
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 7, 15), Model: "claude", CostUSD: 3.0},
+	)
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+	app, _, errOut := testApp(alertCfg(2.5), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "history", "--period", "month", "--compare"); err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if strings.Contains(errOut.String(), "ALERT") {
+		t.Errorf("alert must not fire off previous-period total, got stderr=%q", errOut.String())
+	}
+}
+
 func TestReportCommand_InvalidPeriod(t *testing.T) {
 	app, _, _ := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": &fakeProvider{id: "anthropic"}})
 	err := run(app, "report", "--period", "banana")
