@@ -43,12 +43,33 @@ CLI/storage/report при этом **не меняются** — это и ес�
 
 Кандидаты (решение по конкретным — при реализации, после проверки их usage-API):
 
-- **Google Gemini** — `[ASSUMPTION]` usage/billing доступен через Google Cloud
-  Billing/AI usage; **[TODO уточнить]** эндпоинт и модель авторизации (вероятно
-  сервис-аккаунт, а не простой API-ключ — отличается от Anthropic/OpenAI).
-  Открытый продуктовый вопрос: сервис-аккаунт не влезает в текущую схему
-  `admin_key` (одна строка) — может понадобиться расширить `ProviderConfig`
-  (`internal/config/config.go`) полем под путь к JSON-ключу. Решить при реализации.
+- **Google Gemini** — ⏸ **отложено, не вписывается в текущий порт без
+  архитектурного исключения** (проверено по живой документации 2026-08-22).
+  Факты:
+  - **Gemini API** (`generativelanguage.googleapis.com`, ключ AI Studio) —
+    программного usage/cost-API **нет вообще**: расход виден только в веб-консоли
+    AI Studio (`Dashboard → Usage`). Источник:
+    `https://ai.google.dev/gemini-api/docs/billing`.
+  - **Vertex AI** (`aiplatform.googleapis.com`) биллится через обычный Google
+    Cloud Billing. Cloud Billing REST API (`billingAccounts`/`services`/`skus`)
+    отдаёт только метаданные и прайс-каталог, **не историю расходов**. Единственный
+    путь к реальным цифрам — **экспорт биллинга в BigQuery**
+    (`https://cloud.google.com/billing/docs/how-to/export-data-bigquery`): это
+    SQL-запросы к таблице, а не REST GET; бэкфилл до 5 дней; авторизация —
+    service-account + OAuth2/IAM (`roles/billing.viewer` на чтение,
+    `roles/billing.admin` на настройку экспорта), а не строка `admin_key`.
+  - Cloud Billing Budget API (кандидат на «может это проще?») — тоже не подходит:
+    его `Budget`-ресурс содержит только конфиг порога/уведомлений, полей с
+    фактическим расходом нет.
+  - **Вывод**: это не «ещё один файл-адаптер по образцу», а другой класс
+    интеграции — BigQuery-клиент вместо `net/http`, service-account JSON вместо
+    `admin_key`-строки, обязательный ручной шаг настройки export'а в GCP-консоли
+    вне контроля CLI, многодневная задержка данных. Несоразмерно сложности
+    остальных провайдеров и масштабу pet-проекта ($0/мес, admin_key-конвенция).
+  - Пересмотреть, только если появится однопользовательский REST-эндпоинт с
+    историей расходов (сейчас такого нет ни у Gemini API, ни у Vertex AI) —
+    либо если проект осознанно решит завести BigQuery как отдельное
+    архитектурное исключение с собственной секцией конфига.
 - **OpenRouter** — ✅ реализован (Этап 5, ветка `stage-5/openrouter-provider`).
   Единый `POST /api/v1/analytics/query` (cost в USD + токены), management key,
   без курсорной пагинации (`limit` + `truncated`). Эндпоинт и авторизация
