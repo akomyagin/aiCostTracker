@@ -51,7 +51,7 @@ const (
 
 // knownProviders lists provider ids the CLI understands. Env overrides are only
 // applied for these, so an unknown key in the file is a hard validation error.
-var knownProviders = []string{"anthropic", "openai"}
+var knownProviders = []string{"anthropic", "openai", "openrouter"}
 
 // Load reads and validates configuration from disk + environment.
 //

@@ -14,11 +14,15 @@ const adminKeyHelp = "ADMIN KEY REQUIRED (this is NOT your model API key):\n" +
 	"               (key looks like sk-ant-admin...)\n" +
 	"    OpenAI:    platform.openai.com -> Settings -> Organization -> Admin Keys\n" +
 	"               (key looks like sk-admin-...)\n" +
+	"    OpenRouter: openrouter.ai -> Settings -> Management Keys\n" +
+	"               (a MANAGEMENT key, NOT a normal inference key — an inference\n" +
+	"                key gets 403 on the analytics endpoint)\n" +
 	"\n" +
 	"  Supply it either via environment variables (recommended — never written to\n" +
 	"  disk) or in the config file:\n" +
 	"    export AICOST_ANTHROPIC_ADMIN_KEY=sk-ant-admin-...\n" +
 	"    export AICOST_OPENAI_ADMIN_KEY=sk-admin-...\n" +
+	"    export AICOST_OPENROUTER_ADMIN_KEY=...\n" +
 	"  Config file (~/.config/aicost/config.yaml on Linux; os.UserConfigDir()/aicost\n" +
 	"  elsewhere) — set providers.<name>.admin_key. Env overrides the file.\n" +
 	"\n" +
@@ -29,5 +33,6 @@ const adminKeyHelp = "ADMIN KEY REQUIRED (this is NOT your model API key):\n" +
 // and where to get it, without dumping the full help block onto stderr.
 const adminKeyHint = "hint: usage/cost APIs need an ADMIN/org key (NOT a model API key). " +
 	"Anthropic: console.anthropic.com -> Organization -> Admin Keys (sk-ant-admin...); " +
-	"OpenAI: platform.openai.com -> Organization -> Admin Keys (sk-admin-...). " +
-	"Set AICOST_ANTHROPIC_ADMIN_KEY / AICOST_OPENAI_ADMIN_KEY or config.yaml."
+	"OpenAI: platform.openai.com -> Organization -> Admin Keys (sk-admin-...); " +
+	"OpenRouter: openrouter.ai -> Settings -> Management Keys (management key, not an inference key). " +
+	"Set AICOST_ANTHROPIC_ADMIN_KEY / AICOST_OPENAI_ADMIN_KEY / AICOST_OPENROUTER_ADMIN_KEY or config.yaml."

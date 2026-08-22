@@ -207,7 +207,94 @@ Bucket: `{ "object": "bucket", "start_time", "end_time", "results": [...] }`;
 
 ---
 
-## 3. Итог по снятым `[ASSUMPTION]`/`[TODO §4]`
+## 3. OpenRouter — Analytics API
+
+База — `https://openrouter.ai`. Аналитика — часть Management API организации.
+
+Источник (проверено **2026-08-22**):
+- Analytics / cost control cookbook —
+  `https://openrouter.ai/docs/cookbook/administration/analytics-cost-control`
+
+Адаптер — `internal/provider/openrouter.go`.
+
+### 3.1 Авторизация
+
+- **Management key**, создаётся в openrouter.ai → Settings → Management Keys. Это
+  **не** обычный inference-ключ для вызова моделей — inference-ключ на этом
+  эндпоинте получает **403**. Прямой аналог admin/org-ключа Anthropic/OpenAI →
+  поле конфига `admin_key` подходит без изменений схемы.
+- Заголовок: `Authorization: Bearer <management key>`.
+- Ключ никогда не логируется; редакция отражённого ключа покрыта `redactSecrets`.
+
+### 3.2 Эндпоинты
+
+- **Данные**: `POST /api/v1/analytics/query` — единственный запрос в рантайме;
+  отдаёт **и стоимость (USD), и токены** за окно (в отличие от Anthropic/OpenAI,
+  где cost и usage — два разных эндпоинта).
+- `GET /api/v1/analytics/meta` — схема доступных метрик/измерений; используется
+  **только для ручной сверки схемы**, адаптером в рантайме не вызывается.
+
+### 3.3 Тело запроса (JSON)
+
+```json
+{
+  "metrics": ["total_usage", "prompt_tokens", "completion_tokens"],
+  "dimensions": ["model"],
+  "granularity": "day",
+  "time_range": { "start": "ISO_8601", "end": "ISO_8601" },
+  "limit": 1000
+}
+```
+
+- `dimensions` — **максимум 2** (иначе 400); нам достаточно `["model"]`, день
+  даёт `granularity: "day"`.
+- `time_range.start/end` — RFC 3339, полуинтервал `[Start, End)`.
+- `filters` для MVP не нужны — окно задаётся через `time_range`.
+
+### 3.4 Форма ответа
+
+```json
+{
+  "data": {
+    "data": [ /* rows */ ],
+    "metadata": { "query_time_ms": 0, "row_count": 0, "truncated": false }
+  }
+}
+```
+
+Строка содержит группировочные поля (`model`, дата-поле по грануляции) и метрики.
+Стоимость — **уже в USD** (не центы, не кредиты).
+
+### 3.5 Как адаптер строит `Snapshot`
+
+- **Один** запрос вместо cost+usage-пары: из строк заполняются обе мапы
+  `map[dayModel]float64` (стоимость) и `map[dayModel]tokenCounts` (токены), затем
+  общий `mergeCostsAndTokens` даёт детерминированно отсортированный
+  `[]UsageRecord` по `(day, model)`.
+- **Пагинации курсором нет** — только `limit` + `metadata.truncated`. Дотянуть
+  «хвост» нечем, поэтому при `truncated == true` адаптер возвращает **явную
+  ошибку** (иначе отчёт занизит расходы) — аналог `errTooManyPages` для
+  беспагинационного API. `maxPaginationPages` здесь не применяется (одиночный
+  запрос, цикла нет).
+
+### 3.6 `[ASSUMPTION]` — не выданы за факт, решаются по месту
+
+Проверены эндпоинт, авторизация и общая форма ответа; следующее осталось
+допущением и помечено `[ASSUMPTION]` в коде (`openrouterRow` / список `Metrics`):
+
+- **Имя дата-поля в строке ответа.** Кандидаты и порядок выбора (первый непустой):
+  `date` → `date__day` → `created_at__day`. Значение допускается как RFC3339, так
+  и голая дата `YYYY-MM-DD` (парсер пробует `2006-01-02`, затем RFC3339). Пустое
+  во всех кандидатах — ошибка декодирования, не молчаливый пропуск строки.
+- **Cost-метрика** — `total_usage` (суммарная стоимость в USD).
+- **Токен-метрики** — `prompt_tokens` / `completion_tokens`, в предположении их
+  существования. Если живой API вернёт 400 на неизвестную метрику — сузить до
+  одной cost-метрики и оставить токены нулевыми (известное ограничение адаптера);
+  правка сведётся к json-тегам `openrouterRow` / списку `Metrics` и фикстурам.
+
+---
+
+## 4. Итог по снятым `[ASSUMPTION]`/`[TODO §4]`
 
 | Вопрос из §4 | Ответ (факт) |
 |---|---|
