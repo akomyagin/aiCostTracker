@@ -105,6 +105,46 @@ func TestReportCommand_FetchesSavesAndPrints(t *testing.T) {
 	}
 }
 
+func TestReportCommand_NoDataMessage(t *testing.T) {
+	// report fetched the provider and got zero records back: an empty window is
+	// authoritative "no usage", so print the message and no empty table.
+	fp := &fakeProvider{id: "anthropic", records: nil}
+	app, out, _ := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "report", "--period", "today"); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	if !fp.fetched {
+		t.Error("provider was not fetched")
+	}
+	if !strings.Contains(out.String(), "No usage data for this period.") {
+		t.Errorf("missing no-data message: %q", out.String())
+	}
+	if strings.Contains(out.String(), "TOTAL") {
+		t.Errorf("empty table was printed: %q", out.String())
+	}
+}
+
+func TestHistoryCommand_NoDataMessage(t *testing.T) {
+	// Empty store, no network: history cannot tell zero-spend from not-fetched,
+	// so it must say so and print no empty table.
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+	app, out, _ := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "history", "--period", "7d"); err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if fp.fetched {
+		t.Error("history must not fetch from providers")
+	}
+	if !strings.Contains(out.String(), "No stored history for this period.") {
+		t.Errorf("missing no-data message: %q", out.String())
+	}
+	if strings.Contains(out.String(), "TOTAL") {
+		t.Errorf("empty table was printed: %q", out.String())
+	}
+}
+
 func TestReportCommand_NoProvidersEnabled(t *testing.T) {
 	cfg := config.Config{Providers: map[string]config.ProviderConfig{}, DBPath: ":memory:"}
 	app, _, _ := testApp(cfg, storage.NewFake(), nil)

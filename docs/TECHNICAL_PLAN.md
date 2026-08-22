@@ -23,7 +23,7 @@
 | Язык | **Go 1.23+** | Приоритет обучения; упор на stdlib |
 | CLI-фреймворк | `spf13/cobra` + `spf13/viper` (с Этапа 1) | Тот же выбор, что в `gitl`; в Этапе 0 — только `flag` из stdlib, чтобы `go build` был зелёным без внешних модулей |
 | HTTP к provider API | ручной `net/http`, **без SDK провайдеров** | Осознанно: тренировка retry/backoff/обработки ошибок; SDK каждого провайдера тянул бы разнородные зависимости |
-| Локальное хранилище | **SQLite** | Тренды по времени; кандидаты драйвера — см. §7 |
+| Локальное хранилище | **SQLite** | Тренды по времени; драйвер — см. §2.1 |
 | Рендер таблицы | `text/tabwriter` (stdlib) на Фазе 1 | Без зависимостей; TUI/графики — Фаза 2 |
 | Тесты | стандартный `testing`, table-driven + golden + `httptest` | Как в `gitl` |
 | Логи | `log/slog` (stdlib) | `--verbose` поднимает уровень до debug |
@@ -152,7 +152,7 @@ providers:
 - Порт `ProviderUsageSource` объявлен; адаптеры-заглушки Anthropic/OpenAI.
 - `go build ./...` и `go vet ./...` — **зелёные**; `aicost --version` запускается.
 
-### Этап 1 — Порт + адаптеры Anthropic и OpenAI + конфиг + retry/backoff
+### Этап 1 — Порт + адаптеры Anthropic и OpenAI + конфиг + retry/backoff ✅ *(готово)*
 - **Сначала** верифицировать usage-API обоих провайдеров по живой документации,
   снять пометки `[ASSUMPTION]`/`[TODO]` из §4, зафиксировать эндпоинты в коде.
 - `internal/config`: загрузка YAML + env-override admin-ключей; валидация.
@@ -163,15 +163,17 @@ providers:
   что ключа нет в stdout/stderr; table-driven на нормализацию ответа.
 - Перевод CLI на cobra+viper.
 
-### Этап 2 — Хранилище SQLite
-- Выбрать драйвер (§2.1, по умолчанию `modernc.org/sqlite`).
+### Этап 2 — Хранилище SQLite ✅ *(готово)*
+- Драйвер выбран — `modernc.org/sqlite` (§2.1, чистый Go, без CGO).
 - `internal/storage`: схема таблицы снапшотов, `Save` c **идемпотентным upsert**
   по `(provider, day, model)`, `Query` по провайдеру/окну, `Close`.
 - In-memory fake `Store` для тестов остального кода без диска.
 - Тесты на идемпотентность (двойной `Save` не удваивает историю).
 
-### Этап 3 — Команда `report` + агрегация + таблица
-- `report.Aggregate`: свёртка per-day записей в строки по провайдеру (+модель).
+### Этап 3 — Команда `report` + агрегация + таблица ✅ *(готово)*
+- `report.Aggregate`: свёртка per-day записей в одну строку **на провайдера**
+  (разбивка по модели — Фаза 2, POST_MVP §P2; `UsageRecord.Model` уже пишется в
+  историю, но в таблицу пока не выводится).
 - `report.Table`: выравненная таблица через `text/tabwriter`.
 - Команда `report --period=...`: fetch → save → aggregate → table.
 - Golden-тесты рендера (`testdata/`, обновление флагом `-update`, сравнение байт-в-байт).
