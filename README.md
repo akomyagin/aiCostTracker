@@ -175,11 +175,14 @@ providers:
   локальные снапшоты в SQLite, кросс-компиляция без CGO.
 - **Фаза 2 (в работе):** OpenRouter ✅; тренды/графики в терминале ✅
   (`--chart`/`--by-model`/`--compare` у `history`, `--by-model` у `report`);
-  алерты по порогу расхода ✅ (`alert.monthly_usd` + `--fail-on-alert`); далее
-  больше провайдеров (Google Gemini), TUI (bubbletea),
-  `--format=json`. Полноценный релизный пайплайн (goreleaser/CI-артефакты)
-  — тоже кандидат Фазы 2; для MVP достаточно `go build` с `GOOS`/`GOARCH`.
-  См. [`docs/POST_MVP_PLAN.md`](docs/POST_MVP_PLAN.md).
+  алерты по порогу расхода ✅ (`alert.monthly_usd` + `--fail-on-alert`);
+  `--format=json` ✅ (машиночитаемый вывод у обеих команд); точность денежных
+  сумм ✅ (сквозной `int64` микро-USD вместо накопления `float64`). Далее —
+  кандидаты: больше провайдеров (Google Gemini — отложён, нет REST-API с
+  историей расходов под admin-ключ; см. `POST_MVP_PLAN.md §P1`), TUI (bubbletea),
+  полноценный релизный пайплайн (goreleaser/CI-артефакты; для MVP достаточно
+  `go build` с `GOOS`/`GOARCH`). См.
+  [`docs/POST_MVP_PLAN.md`](docs/POST_MVP_PLAN.md).
 
 ## Документация
 

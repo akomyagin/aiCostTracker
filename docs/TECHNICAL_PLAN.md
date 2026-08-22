@@ -26,7 +26,7 @@
 | Локальное хранилище | **SQLite** | Тренды по времени; драйвер — см. §2.1 |
 | Рендер таблицы | `text/tabwriter` (stdlib) на Фазе 1 | Без зависимостей; TUI/графики — Фаза 2 |
 | Тесты | стандартный `testing`, table-driven + golden + `httptest` | Как в `gitl` |
-| Логи | `log/slog` (stdlib) | `--verbose` поднимает уровень до debug |
+| Логи | пока нет отдельного логгера | В реализации (Этапы 0–9) логгер/`--verbose` не заведены: инструмент печатает результат в stdout, ошибки — в stderr, секреты не попадают ни туда, ни туда. `log/slog` + `--verbose` (уровень debug) остаются кандидатом Фазы 2, если понадобится диагностический вывод |
 
 ### 2.1 Драйвер SQLite — решение отложено до Этапа 2
 
@@ -78,7 +78,8 @@ type ProviderUsageSource interface {
   ошибки (429/5xx/сеть) с экспоненциальным backoff+jitter, падать сразу на
   фатальных (400/401/403), и **никогда** не логировать ключ.
 - Наружу отдаёт нормализованный `Snapshot{Provider, Window, []UsageRecord, FetchedAt}`,
-  где `UsageRecord` — общая модель `(provider, day, model, in/out tokens, costUSD)`.
+  где `UsageRecord` — общая модель `(provider, day, model, in/out tokens, CostMicros)`
+  (стоимость — целочисленные микро-доллары `int64`, `1 USD = 1_000_000`; см. Этап 9).
   Различия провайдеров нормализуются **внутри** адаптера и наружу не протекают.
 
 Правило «интерфейс появляется на второй реализации» здесь выполнено буквально:
@@ -131,6 +132,9 @@ http_timeout: 30s
 max_retries: 4
 db_path: ""              # пусто = os.UserConfigDir()/aicost/history.db
 
+alert:
+  monthly_usd: 200       # порог месячного расхода; 0 или отсутствие блока = алерт выключен (Этап 7)
+
 providers:
   anthropic:
     enabled: true
@@ -140,10 +144,15 @@ providers:
     enabled: true
     admin_key: ""        # через env AICOST_OPENAI_ADMIN_KEY
     base_url: ""
+  openrouter:            # Этап 5; management key, НЕ inference-ключ
+    enabled: true
+    admin_key: ""        # через env AICOST_OPENROUTER_ADMIN_KEY
+    base_url: ""
 ```
 
-Соответствует типам в `internal/config/config.go`. Ключ `providers.<id>` совпадает
-с `ProviderUsageSource.ID()`.
+Соответствует типам в `internal/config/config.go` (`Config`, `ProviderConfig`,
+`Config.Alert.MonthlyUSD`). Ключ `providers.<id>` совпадает с
+`ProviderUsageSource.ID()`; `knownProviders` = `anthropic`, `openai`, `openrouter`.
 
 ## 6. Разбивка по Этапам
 
@@ -231,8 +240,9 @@ providers:
 - **Этап 7 — алерты по порогу расхода ✅** (ветка `stage-7/spend-alert`):
   реализует POST_MVP §P3. Верхнеуровневый блок конфига
   `alert.monthly_usd float64` (валидация `>= 0`; `0` или отсутствие блока —
-  выключено). После рендера таблицы/графика `report`/`history` считают суммарный
-  `CostUSD` за окно и при **строго** большем пороге печатают
+  выключено). После рендера таблицы/графика `report`/`history` считают суммарную
+  стоимость за окно (`cli.sumCost`, микро-USD `int64`) и при **строго** большем
+  пороге печатают
   `ALERT: total spend $X exceeds monthly threshold $Y` в **stderr** (stdout и
   golden-файлы не затрагиваются). Общий флаг `--fail-on-alert` у обеих команд
   добавляет ненулевой exit-код (ошибка `monthly alert threshold exceeded`) для
@@ -253,6 +263,28 @@ providers:
   текстовое сообщение. Алерт работает как при table (stderr + exit-код), JSON в
   stdout не искажается. Без новых зависимостей (`encoding/json` — stdlib);
   существующие golden-файлы без изменений.
+
+- **Этап 9 — точность денежных сумм ✅** (ветка `stage-9/money-precision`):
+  закрывает технический долг POST_MVP §P5. Сквозной переход с накапливаемого
+  `float64`-доллара на `int64` микро-долларов (`1 USD = 1_000_000`) от точки
+  первого появления суммы как `float64` (парсинг ответа провайдера) через весь
+  путь накопления и обратно в доллары только при финальном рендере. Поле
+  `CostUSD float64` переименовано в `CostMicros int64` в `provider.UsageRecord`,
+  `report.Row`, `report.ModelRow`, `report.DayTotal`. Новый файл
+  `internal/provider/money.go` — `DollarsToMicros` (единственная санкционированная
+  конверсия float→money, `math.Round`, half away from zero) и `MicrosToDollars`
+  (для рендера). Миграция SQLite `cost_usd REAL → cost_micros INTEGER` в
+  `storage.migrate`: старая БД пересобирается в одной транзакции
+  (`CAST(ROUND(cost_usd*1e6) AS INTEGER)`), история сохраняется, повторное
+  открытие идемпотентно (детект по `PRAGMA table_info`). Миграция **молчаливая** —
+  пользователю не печатается ни строки (осознанно: единичное одноразовое событие,
+  логгера в проекте нет; см. §2). JSON-контракт §P4 не изменён (отдельная DTO
+  по-прежнему отдаёт `cost_usd` как `float64`-доллары, `schema_version: 1`).
+  `config.Alert.MonthlyUSD` **осознанно оставлен `float64`** (вводимые
+  пользователем доллары, не накапливаемая сумма; конвертируется в micros один раз
+  при каждом сравнении в `cli.checkAlert`). Весь пользовательский вывод байт-в-байт
+  прежний; все 5 golden-файлов нетронуты. Детали — `docs/POST_MVP_PLAN.md §P5`,
+  `docs/plans/stage-9-money-precision.md`.
 
 Остальное — см. [`POST_MVP_PLAN.md`](./POST_MVP_PLAN.md).
 
