@@ -138,6 +138,49 @@ providers:
 	}
 }
 
+func TestLoadFrom_AlertThreshold(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr bool
+		want    float64
+	}{
+		{
+			name: "positive parses",
+			body: "alert:\n  monthly_usd: 200\n",
+			want: 200,
+		},
+		{
+			name: "absent block is zero (disabled)",
+			body: "max_retries: 2\n",
+			want: 0,
+		},
+		{
+			name:    "negative is a validation error",
+			body:    "alert:\n  monthly_usd: -1\n",
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, tc.body)
+			cfg, err := loadFrom(path, noEnv)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected validation error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("loadFrom: %v", err)
+			}
+			if cfg.Alert.MonthlyUSD != tc.want {
+				t.Errorf("Alert.MonthlyUSD = %g, want %g", cfg.Alert.MonthlyUSD, tc.want)
+			}
+		})
+	}
+}
+
 func TestResolvedDBPath_Explicit(t *testing.T) {
 	cfg := Config{DBPath: "/tmp/custom.db"}
 	got, err := cfg.ResolvedDBPath()

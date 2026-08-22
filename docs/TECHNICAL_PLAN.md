@@ -228,6 +228,19 @@ providers:
     `report_table.golden` без правок); новые форматы — `report_model_table.golden`,
     `history_chart.golden`, `history_compare.golden`.
 
+- **Этап 7 — алерты по порогу расхода ✅** (ветка `stage-7/spend-alert`):
+  реализует POST_MVP §P3. Верхнеуровневый блок конфига
+  `alert.monthly_usd float64` (валидация `>= 0`; `0` или отсутствие блока —
+  выключено). После рендера таблицы/графика `report`/`history` считают суммарный
+  `CostUSD` за окно и при **строго** большем пороге печатают
+  `ALERT: total spend $X exceeds monthly threshold $Y` в **stderr** (stdout и
+  golden-файлы не затрагиваются). Общий флаг `--fail-on-alert` у обеих команд
+  добавляет ненулевой exit-код (ошибка `monthly alert threshold exceeded`) для
+  CI/cron; без флага — только предупреждение. У `history --compare` порог
+  сверяется с **текущим** периодом, не с прошлым. No-data-ветка алерт не
+  проверяет. Хелперы `checkAlert`/`sumCost` — в `internal/cli/report.go`. Без
+  новых зависимостей.
+
 Остальное — см. [`POST_MVP_PLAN.md`](./POST_MVP_PLAN.md).
 
 ## 7. Docker Compose — решение: НЕ заводим

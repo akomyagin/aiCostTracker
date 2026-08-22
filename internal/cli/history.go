@@ -12,10 +12,11 @@ import (
 // aggregated table for the period — no network calls under any flag.
 func (a *App) historyCmd() *cobra.Command {
 	var (
-		period  string
-		chart   bool
-		byModel bool
-		compare bool
+		period      string
+		chart       bool
+		byModel     bool
+		compare     bool
+		failOnAlert bool
 	)
 
 	cmd := &cobra.Command{
@@ -30,17 +31,18 @@ func (a *App) historyCmd() *cobra.Command {
 			"other two.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return a.runHistory(cmd, period, chart, byModel, compare)
+			return a.runHistory(cmd, period, chart, byModel, compare, failOnAlert)
 		},
 	}
 	cmd.Flags().StringVar(&period, "period", "30d", "period to show: Nd (e.g. 7d), month, or today")
 	cmd.Flags().BoolVar(&chart, "chart", false, "append an ASCII bar chart of daily spend")
 	cmd.Flags().BoolVar(&byModel, "by-model", false, "break the table down by (provider, model)")
 	cmd.Flags().BoolVar(&compare, "compare", false, "compare with the previous period of the same kind")
+	cmd.Flags().BoolVar(&failOnAlert, "fail-on-alert", false, "exit non-zero when spend exceeds alert.monthly_usd")
 	return cmd
 }
 
-func (a *App) runHistory(cmd *cobra.Command, period string, chart, byModel, compare bool) error {
+func (a *App) runHistory(cmd *cobra.Command, period string, chart, byModel, compare, failOnAlert bool) error {
 	ctx := cmd.Context()
 
 	if compare && (byModel || chart) {
@@ -81,6 +83,11 @@ func (a *App) runHistory(cmd *cobra.Command, period string, chart, byModel, comp
 		return nil
 	}
 
+	// Alert is computed from the CURRENT window's total regardless of output
+	// format; under --compare the previous period is irrelevant to the threshold.
+	cur := report.Aggregate(records)
+	total := sumCost(cur)
+
 	if compare {
 		prevWin, err := previousWindow(period, a.Now())
 		if err != nil {
@@ -91,10 +98,10 @@ func (a *App) runHistory(cmd *cobra.Command, period string, chart, byModel, comp
 			return fmt.Errorf("query history: %w", err)
 		}
 		if err := report.CompareTables(out, formatWindow(window), formatWindow(prevWin),
-			report.Aggregate(records), report.Aggregate(prevRecords)); err != nil {
+			cur, report.Aggregate(prevRecords)); err != nil {
 			return fmt.Errorf("render comparison: %w", err)
 		}
-		return nil
+		return checkAlert(cmd, cfg.Alert.MonthlyUSD, total, failOnAlert)
 	}
 
 	if byModel {
@@ -102,7 +109,7 @@ func (a *App) runHistory(cmd *cobra.Command, period string, chart, byModel, comp
 			return fmt.Errorf("render table: %w", err)
 		}
 	} else {
-		if err := report.Table(out, report.Aggregate(records)); err != nil {
+		if err := report.Table(out, cur); err != nil {
 			return fmt.Errorf("render table: %w", err)
 		}
 	}
@@ -113,5 +120,5 @@ func (a *App) runHistory(cmd *cobra.Command, period string, chart, byModel, comp
 			return fmt.Errorf("render chart: %w", err)
 		}
 	}
-	return nil
+	return checkAlert(cmd, cfg.Alert.MonthlyUSD, total, failOnAlert)
 }

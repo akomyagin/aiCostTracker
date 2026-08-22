@@ -41,6 +41,12 @@ type Config struct {
 	// DBPath is where the SQLite history lives; empty = default under
 	// os.UserConfigDir()/aicost/history.db.
 	DBPath string `yaml:"db_path"`
+
+	// Alert configures the optional monthly spend threshold. MonthlyUSD == 0
+	// (the zero value, i.e. an absent "alert" block) disables alerting entirely.
+	Alert struct {
+		MonthlyUSD float64 `yaml:"monthly_usd"`
+	} `yaml:"alert"`
 }
 
 // Defaults applied when the config file omits a field or does not exist.
@@ -124,6 +130,9 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) {
 func validate(cfg *Config) error {
 	if cfg.MaxRetries < 0 {
 		return fmt.Errorf("max_retries must be >= 0, got %d", cfg.MaxRetries)
+	}
+	if cfg.Alert.MonthlyUSD < 0 {
+		return fmt.Errorf("alert.monthly_usd must be >= 0, got %g", cfg.Alert.MonthlyUSD)
 	}
 	for id := range cfg.Providers {
 		if !isKnownProvider(id) {
