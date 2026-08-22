@@ -42,9 +42,12 @@ type ProviderUsageSource interface {
 - `ID()` — стабильный **lowercase** идентификатор; он же ключ в конфиге
   (`providers.<id>`), в хранилище и селектор в CLI. Константа на всю жизнь адаптера.
 - `Fetch` — тянет usage за окно, нормализует **внутри адаптера** в общий
-  `UsageRecord{Provider, Day, Model, InputTokens, OutputTokens, CostUSD}` и
-  отдаёт `Snapshot`. Различия провайдеров (пути, авторизация, форма ответа,
-  пагинация) наружу **не протекают**.
+  `UsageRecord{Provider, Day, Model, InputTokens, OutputTokens, CostMicros}` и
+  отдаёт `Snapshot`. `CostMicros` — целые микро-доллары (`int64`, `1 USD = 1e6`):
+  сумма провайдера парсится во `float64` и **сразу** конвертируется через
+  `provider.DollarsToMicros`, дальше только целочисленная арифметика (Этап 9,
+  устранение дрейфа float). Различия провайдеров (пути, авторизация, форма
+  ответа, пагинация) наружу **не протекают**.
 - Добавить провайдера = добавить один файл-адаптер + строку в фабрику. CLI,
   storage, report не трогаются. Это проверяемый инвариант качества.
 - **`var _ ProviderUsageSource = (*Anthropic)(nil)`** в каждом адаптере — чтобы

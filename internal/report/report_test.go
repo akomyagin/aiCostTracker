@@ -19,10 +19,10 @@ func day(y int, m time.Month, d int) time.Time {
 
 func TestAggregate(t *testing.T) {
 	records := []provider.UsageRecord{
-		{Provider: "openai", Day: day(2025, 8, 1), Model: "gpt-4o", InputTokens: 100, OutputTokens: 40, CostUSD: 1.0},
-		{Provider: "anthropic", Day: day(2025, 8, 1), Model: "claude", InputTokens: 200, OutputTokens: 90, CostUSD: 2.0},
-		{Provider: "anthropic", Day: day(2025, 8, 2), Model: "claude", InputTokens: 50, OutputTokens: 10, CostUSD: 0.5},
-		{Provider: "", Day: day(2025, 8, 2), Model: "x", CostUSD: 99}, // empty provider ignored
+		{Provider: "openai", Day: day(2025, 8, 1), Model: "gpt-4o", InputTokens: 100, OutputTokens: 40, CostMicros: 1_000_000},
+		{Provider: "anthropic", Day: day(2025, 8, 1), Model: "claude", InputTokens: 200, OutputTokens: 90, CostMicros: 2_000_000},
+		{Provider: "anthropic", Day: day(2025, 8, 2), Model: "claude", InputTokens: 50, OutputTokens: 10, CostMicros: 500_000},
+		{Provider: "", Day: day(2025, 8, 2), Model: "x", CostMicros: 99_000_000}, // empty provider ignored
 	}
 
 	rows := Aggregate(records)
@@ -34,11 +34,11 @@ func TestAggregate(t *testing.T) {
 		t.Fatalf("order = %q,%q", rows[0].Provider, rows[1].Provider)
 	}
 	// anthropic rolls both days together.
-	if rows[0].InputTokens != 250 || rows[0].OutputTokens != 100 || rows[0].CostUSD != 2.5 {
+	if rows[0].InputTokens != 250 || rows[0].OutputTokens != 100 || rows[0].CostMicros != 2_500_000 {
 		t.Errorf("anthropic row = %+v", rows[0])
 	}
-	if rows[1].CostUSD != 1.0 {
-		t.Errorf("openai cost = %v", rows[1].CostUSD)
+	if rows[1].CostMicros != 1_000_000 {
+		t.Errorf("openai cost = %d", rows[1].CostMicros)
 	}
 }
 
@@ -50,8 +50,8 @@ func TestAggregate_Empty(t *testing.T) {
 
 func TestTable_Golden(t *testing.T) {
 	rows := []Row{
-		{Provider: "anthropic", InputTokens: 250, OutputTokens: 100, CostUSD: 2.5},
-		{Provider: "openai", InputTokens: 100, OutputTokens: 40, CostUSD: 1.0},
+		{Provider: "anthropic", InputTokens: 250, OutputTokens: 100, CostMicros: 2_500_000},
+		{Provider: "openai", InputTokens: 100, OutputTokens: 40, CostMicros: 1_000_000},
 	}
 
 	var buf bytes.Buffer
@@ -80,11 +80,11 @@ func TestTable_Golden(t *testing.T) {
 
 func TestAggregateByModel(t *testing.T) {
 	records := []provider.UsageRecord{
-		{Provider: "openai", Day: day(2025, 8, 1), Model: "gpt-4o", InputTokens: 100, OutputTokens: 40, CostUSD: 1.0},
-		{Provider: "openai", Day: day(2025, 8, 2), Model: "gpt-4o", InputTokens: 30, OutputTokens: 10, CostUSD: 0.3}, // same model, another day
-		{Provider: "openai", Day: day(2025, 8, 1), Model: "", InputTokens: 10, OutputTokens: 5, CostUSD: 0.1},        // empty model = own bucket
-		{Provider: "anthropic", Day: day(2025, 8, 1), Model: "claude", InputTokens: 200, OutputTokens: 90, CostUSD: 2.0},
-		{Provider: "", Day: day(2025, 8, 2), Model: "x", CostUSD: 99}, // empty provider ignored
+		{Provider: "openai", Day: day(2025, 8, 1), Model: "gpt-4o", InputTokens: 100, OutputTokens: 40, CostMicros: 1_000_000},
+		{Provider: "openai", Day: day(2025, 8, 2), Model: "gpt-4o", InputTokens: 30, OutputTokens: 10, CostMicros: 300_000}, // same model, another day
+		{Provider: "openai", Day: day(2025, 8, 1), Model: "", InputTokens: 10, OutputTokens: 5, CostMicros: 100_000},        // empty model = own bucket
+		{Provider: "anthropic", Day: day(2025, 8, 1), Model: "claude", InputTokens: 200, OutputTokens: 90, CostMicros: 2_000_000},
+		{Provider: "", Day: day(2025, 8, 2), Model: "x", CostMicros: 99_000_000}, // empty provider ignored
 	}
 
 	rows := AggregateByModel(records)
@@ -102,7 +102,7 @@ func TestAggregateByModel(t *testing.T) {
 		t.Errorf("rows[2] = %+v", rows[2])
 	}
 	// gpt-4o rolls both days together.
-	if rows[2].InputTokens != 130 || rows[2].OutputTokens != 50 || rows[2].CostUSD != 1.3 {
+	if rows[2].InputTokens != 130 || rows[2].OutputTokens != 50 || rows[2].CostMicros != 1_300_000 {
 		t.Errorf("gpt-4o row = %+v", rows[2])
 	}
 }
@@ -115,9 +115,9 @@ func TestAggregateByModel_Empty(t *testing.T) {
 
 func TestModelTable_Golden(t *testing.T) {
 	rows := []ModelRow{
-		{Provider: "anthropic", Model: "claude", InputTokens: 250, OutputTokens: 100, CostUSD: 2.5},
-		{Provider: "openai", Model: "", InputTokens: 10, OutputTokens: 5, CostUSD: 0.1},
-		{Provider: "openai", Model: "gpt-4o", InputTokens: 100, OutputTokens: 40, CostUSD: 1.0},
+		{Provider: "anthropic", Model: "claude", InputTokens: 250, OutputTokens: 100, CostMicros: 2_500_000},
+		{Provider: "openai", Model: "", InputTokens: 10, OutputTokens: 5, CostMicros: 100_000},
+		{Provider: "openai", Model: "gpt-4o", InputTokens: 100, OutputTokens: 40, CostMicros: 1_000_000},
 	}
 
 	var buf bytes.Buffer
@@ -142,6 +142,66 @@ func TestModelTable_Golden(t *testing.T) {
 	if !bytes.Equal(buf.Bytes(), want) {
 		t.Errorf("model table output mismatch.\n--- got ---\n%s\n--- want ---\n%s", buf.String(), want)
 	}
+}
+
+// TestAggregate_NoFloatDrift is the money-precision regression test (Этап 9):
+// summing many small equal amounts must be exact. 10_000 records of 10_000
+// micros ($0.01) aggregate to exactly 100_000_000 micros ($100.00). In the old
+// float64 version, 10_000 * 0.01 accumulated to 100.00000000000335…, which the
+// exact equality below would reject. AggregateByModel and AggregateByDay share
+// the same += path and are checked with smaller volumes.
+func TestAggregate_NoFloatDrift(t *testing.T) {
+	t.Run("Aggregate", func(t *testing.T) {
+		const n = 10_000
+		records := make([]provider.UsageRecord, 0, n)
+		for i := 0; i < n; i++ {
+			records = append(records, provider.UsageRecord{
+				Provider: "anthropic", Day: day(2025, 8, 1), Model: "claude", CostMicros: 10_000,
+			})
+		}
+		rows := Aggregate(records)
+		if len(rows) != 1 {
+			t.Fatalf("got %d rows, want 1", len(rows))
+		}
+		if rows[0].CostMicros != 100_000_000 {
+			t.Errorf("CostMicros = %d, want 100_000_000 ($100.00 exact)", rows[0].CostMicros)
+		}
+	})
+
+	t.Run("AggregateByModel", func(t *testing.T) {
+		const n = 1_000
+		records := make([]provider.UsageRecord, 0, n)
+		for i := 0; i < n; i++ {
+			records = append(records, provider.UsageRecord{
+				Provider: "anthropic", Day: day(2025, 8, 1), Model: "claude", CostMicros: 1_000,
+			})
+		}
+		rows := AggregateByModel(records)
+		if len(rows) != 1 {
+			t.Fatalf("got %d rows, want 1", len(rows))
+		}
+		if rows[0].CostMicros != 1_000_000 {
+			t.Errorf("CostMicros = %d, want 1_000_000 ($1.00 exact)", rows[0].CostMicros)
+		}
+	})
+
+	t.Run("AggregateByDay", func(t *testing.T) {
+		const n = 1_000
+		w := provider.Window{Start: day(2025, 8, 1), End: day(2025, 8, 2)}
+		records := make([]provider.UsageRecord, 0, n)
+		for i := 0; i < n; i++ {
+			records = append(records, provider.UsageRecord{
+				Provider: "anthropic", Day: day(2025, 8, 1), Model: "claude", CostMicros: 1_000,
+			})
+		}
+		days := AggregateByDay(records, w)
+		if len(days) != 1 {
+			t.Fatalf("got %d days, want 1", len(days))
+		}
+		if days[0].CostMicros != 1_000_000 {
+			t.Errorf("CostMicros = %d, want 1_000_000 ($1.00 exact)", days[0].CostMicros)
+		}
+	})
 }
 
 func TestTable_EmptyRowsHasTotal(t *testing.T) {

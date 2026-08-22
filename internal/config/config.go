@@ -45,6 +45,8 @@ type Config struct {
 	// Alert configures the optional monthly spend threshold. MonthlyUSD == 0
 	// (the zero value, i.e. an absent "alert" block) disables alerting entirely.
 	Alert struct {
+		// Stays float64 deliberately: user-entered dollars, never accumulated;
+		// converted once per comparison (see cli.checkAlert).
 		MonthlyUSD float64 `yaml:"monthly_usd"`
 	} `yaml:"alert"`
 }

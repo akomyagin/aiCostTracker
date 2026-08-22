@@ -119,7 +119,41 @@ CLI/storage/report при этом **не меняются** — это и ес�
   или ещё локальные desktop-нотификации (кросс-платформенно — отдельная морока).
   По умолчанию для первой итерации — только stderr + опциональный exit-code.
 
-### P5. Точность денежных сумм (известный технический долг)
+### P5. Точность денежных сумм ✅ (Этап 9, ветка `stage-9/money-precision`)
+
+Реализовано. Фактические решения (см. план `docs/plans/stage-9-money-precision.md`):
+
+- **Сквозной `int64` микро-долларов**: `1 USD = 1_000_000` единиц. Денежная
+  сумма представлена как `int64` от точки первого появления как `float64`
+  (парсинг ответа провайдера) через весь путь накопления
+  (`adapter.mergeCostsAndTokens` → `storage` → `report.Aggregate`/
+  `AggregateByModel`/`AggregateByDay` → `compare.totalCost` → `cli.sumCost`) и
+  обратно в `float64`-доллары только в точках финального рендера. Поле
+  `CostUSD float64` переименовано в `CostMicros int64` в `provider.UsageRecord`,
+  `report.Row`, `report.ModelRow`, `report.DayTotal`.
+- **Хелперы конвертации** — `internal/provider/money.go`: `DollarsToMicros`
+  (единственный санкционированный float→money, `math.Round`, half away from zero)
+  и `MicrosToDollars` (для рендера). float→micros вызывается ровно один раз на
+  значение (декодирование ответа провайдера + сравнение порога алерта);
+  micros→dollars — ровно один раз в точке рендера (`formatUSD`, JSON-DTO,
+  масштабирование бар-чарта, процент в compare).
+- **Миграция SQLite `REAL → INTEGER`**: колонка `cost_usd REAL` →
+  `cost_micros INTEGER`. Старая БД пересобирается в `migrate` (внутри одной
+  транзакции: `CREATE … usage_records_new` с `CAST(ROUND(cost_usd*1e6) AS INTEGER)`,
+  `DROP`, `RENAME`), история пользователя сохраняется без потерь; повторное
+  открытие идемпотентно (детект по `PRAGMA table_info`).
+- **JSON-контракт §P4 не изменён**: отдельная DTO `report.jsonRow`/`jsonTotal`
+  по-прежнему отдаёт `cost_usd` как `float64`-доллары, `schema_version: 1`.
+  `Row` больше не сериализуется напрямую (json-теги сняты).
+- **`Alert.MonthlyUSD` осознанно остался `float64`**: это вводимые пользователем
+  доллары, не накапливаемая сумма; конвертируется в micros один раз при каждом
+  сравнении в `cli.checkAlert`. Зафиксировано комментарием у поля.
+- Весь пользовательский вывод (таблицы, чарт, compare, JSON, ALERT-строка)
+  байт-в-байт прежний; все 5 golden-файлов нетронуты. Regression-тесты на дрейф
+  (`+=` многих значений, дрейфующих во float64, теперь точны) — в
+  `provider`/`report`/`storage`.
+
+Исходная формулировка долга (для истории):
 
 Найдено независимым `/code-review` на Этапе 1: `Anthropic`/`OpenAI` парсят
 `amount`/`amount.value` в `float64` и суммируют по `(day, model)`, а

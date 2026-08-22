@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -76,7 +77,7 @@ type anthropicCostResponse struct {
 	Data []struct {
 		StartingAt string `json:"starting_at"`
 		Results    []struct {
-			Amount string `json:"amount"` // decimal string in USD dollars
+			Amount string `json:"amount"` // decimal string in USD dollars; converted to integer micro-USD immediately after parse
 			Model  string `json:"model"`  // null when not grouped by description
 		} `json:"results"`
 	} `json:"data"`
@@ -84,8 +85,8 @@ type anthropicCostResponse struct {
 	NextPage string `json:"next_page"`
 }
 
-func (a *Anthropic) fetchCosts(ctx context.Context, w Window) (map[dayModel]float64, error) {
-	out := make(map[dayModel]float64)
+func (a *Anthropic) fetchCosts(ctx context.Context, w Window) (map[dayModel]int64, error) {
+	out := make(map[dayModel]int64)
 	page := ""
 
 	for pages := 0; ; pages++ {
@@ -123,7 +124,13 @@ func (a *Anthropic) fetchCosts(ctx context.Context, w Window) (map[dayModel]floa
 				if err != nil {
 					return nil, fmt.Errorf("cost amount %q: %w", r.Amount, err)
 				}
-				out[dayModel{day: day, model: r.Model}] += amt
+				// ParseFloat accepts the spellings "NaN"/"Inf" without error;
+				// converting either to int64 money would silently corrupt the
+				// total, so reject them explicitly instead of trusting the API.
+				if math.IsNaN(amt) || math.IsInf(amt, 0) {
+					return nil, fmt.Errorf("cost amount %q: not a finite number", r.Amount)
+				}
+				out[dayModel{day: day, model: r.Model}] += DollarsToMicros(amt)
 			}
 		}
 		if !resp.HasMore || resp.NextPage == "" {

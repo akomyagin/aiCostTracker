@@ -9,10 +9,10 @@ func TestMergeCostsAndTokens_UnionAndSort(t *testing.T) {
 	d1 := time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC)
 	d2 := time.Date(2025, 8, 2, 0, 0, 0, 0, time.UTC)
 
-	costs := map[dayModel]float64{
-		{day: d2, model: "b"}: 2.0,
-		{day: d1, model: "a"}: 1.0,
-		{day: d1, model: "z"}: 0.5, // cost-only key (no tokens)
+	costs := map[dayModel]int64{
+		{day: d2, model: "b"}: 2_000_000,
+		{day: d1, model: "a"}: 1_000_000,
+		{day: d1, model: "z"}: 500_000, // cost-only key (no tokens)
 	}
 	tokens := map[dayModel]tokenCounts{
 		{day: d1, model: "a"}: {input: 10, output: 5},
@@ -40,15 +40,15 @@ func TestMergeCostsAndTokens_UnionAndSort(t *testing.T) {
 	}
 
 	// d1/a has both cost and tokens.
-	if got[0].CostUSD != 1.0 || got[0].InputTokens != 10 || got[0].OutputTokens != 5 {
+	if got[0].CostMicros != 1_000_000 || got[0].InputTokens != 10 || got[0].OutputTokens != 5 {
 		t.Errorf("d1/a = %+v", got[0])
 	}
 	// d1/z is cost-only.
-	if got[1].CostUSD != 0.5 || got[1].InputTokens != 0 {
+	if got[1].CostMicros != 500_000 || got[1].InputTokens != 0 {
 		t.Errorf("d1/z cost-only = %+v", got[1])
 	}
 	// d2/y (index 3) is token-only.
-	if got[3].CostUSD != 0 || got[3].InputTokens != 3 {
+	if got[3].CostMicros != 0 || got[3].InputTokens != 3 {
 		t.Errorf("d2/y token-only = %+v", got[3])
 	}
 }

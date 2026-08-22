@@ -130,9 +130,108 @@ func TestAnthropicFetch_MergesCostAndTokens(t *testing.T) {
 	if rec.OutputTokens != 500 {
 		t.Errorf("OutputTokens = %d, want 500", rec.OutputTokens)
 	}
-	// cost = 1.50 + 0.75.
-	if rec.CostUSD < 2.24 || rec.CostUSD > 2.26 {
-		t.Errorf("CostUSD = %v, want ~2.25", rec.CostUSD)
+	// cost = 1.50 + 0.75 = 2.25 exactly (micros make the tolerance unnecessary).
+	if rec.CostMicros != 2_250_000 {
+		t.Errorf("CostMicros = %d, want 2_250_000 ($2.25)", rec.CostMicros)
+	}
+}
+
+// TestAnthropicFetch_CostAccumulationIsExact is the money-precision regression
+// test (Этап 9): three cost_report pages each report amount "0.1" for the SAME
+// (day, model), so the adapter accumulates 0.1 + 0.1 + 0.1. In float64 that sum
+// is 0.30000000000000004; as integer micro-USD it is exactly 300_000. The exact
+// equality below would have failed under the old float64 CostUSD field.
+func TestAnthropicFetch_CostAccumulationIsExact(t *testing.T) {
+	var costHits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/cost_report"):
+			costHits++
+			hasMore := costHits < 3
+			nextPage := "null"
+			if hasMore {
+				nextPage = fmt.Sprintf("%q", fmt.Sprintf("cursor-%d", costHits))
+			}
+			_, _ = w.Write([]byte(fmt.Sprintf(`{
+  "data": [
+    {
+      "starting_at": "2025-08-01T00:00:00Z",
+      "ending_at": "2025-08-02T00:00:00Z",
+      "results": [ { "amount": "0.1", "currency": "USD", "model": "claude-opus-4-6" } ]
+    }
+  ],
+  "has_more": %t,
+  "next_page": %s
+}`, hasMore, nextPage)))
+		case strings.Contains(r.URL.Path, "/usage_report/messages"):
+			_, _ = w.Write([]byte(`{"data":[],"has_more":false,"next_page":null}`))
+		default:
+			http.Error(w, "unexpected path "+r.URL.Path, http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	a := newAnthropicTestAdapter(t, srv.URL, 0)
+	w := Window{
+		Start: time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC),
+		End:   time.Date(2025, 8, 2, 0, 0, 0, 0, time.UTC),
+	}
+	snap, err := a.Fetch(context.Background(), w)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if costHits != 3 {
+		t.Fatalf("cost_report hit %d times, want 3 pages", costHits)
+	}
+	if len(snap.Records) != 1 {
+		t.Fatalf("got %d records, want 1: %+v", len(snap.Records), snap.Records)
+	}
+	if snap.Records[0].CostMicros != 300_000 {
+		t.Errorf("CostMicros = %d, want 300_000 (0.1+0.1+0.1 exact)", snap.Records[0].CostMicros)
+	}
+}
+
+func TestAnthropicFetch_RejectsNonFiniteAmount(t *testing.T) {
+	// strconv.ParseFloat accepts the spellings "NaN"/"Inf" without error;
+	// converting either to int64 money would silently corrupt the total, so a
+	// malformed/hostile response must fail loudly instead.
+	for _, amount := range []string{"NaN", "Inf", "-Inf"} {
+		t.Run(amount, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.Contains(r.URL.Path, "/cost_report"):
+					_, _ = w.Write([]byte(fmt.Sprintf(`{
+  "data": [
+    {
+      "starting_at": "2025-08-01T00:00:00Z",
+      "ending_at": "2025-08-02T00:00:00Z",
+      "results": [ { "amount": %q, "currency": "USD", "model": "claude-opus-4-6" } ]
+    }
+  ],
+  "has_more": false,
+  "next_page": null
+}`, amount)))
+				case strings.Contains(r.URL.Path, "/usage_report/messages"):
+					_, _ = w.Write([]byte(`{"data":[],"has_more":false,"next_page":null}`))
+				default:
+					http.Error(w, "unexpected path "+r.URL.Path, http.StatusNotFound)
+				}
+			}))
+			defer srv.Close()
+
+			a := newAnthropicTestAdapter(t, srv.URL, 0)
+			w := Window{
+				Start: time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC),
+				End:   time.Date(2025, 8, 2, 0, 0, 0, 0, time.UTC),
+			}
+			_, err := a.Fetch(context.Background(), w)
+			if err == nil {
+				t.Fatalf("Fetch with amount %q: want error, got nil", amount)
+			}
+			if !strings.Contains(err.Error(), "not a finite number") {
+				t.Errorf("Fetch error = %q, want mention of a finite-number check", err.Error())
+			}
+		})
 	}
 }
 

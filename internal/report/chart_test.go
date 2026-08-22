@@ -13,10 +13,10 @@ import (
 func TestAggregateByDay(t *testing.T) {
 	w := provider.Window{Start: day(2025, 8, 9), End: day(2025, 8, 14)} // 5 days: 9..13
 	records := []provider.UsageRecord{
-		{Provider: "openai", Day: day(2025, 8, 10), Model: "gpt-4o", CostUSD: 0.5},
-		{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 0.3}, // same day, another provider/model
-		{Provider: "openai", Day: day(2025, 8, 12), Model: "gpt-4o", CostUSD: 2.0},
-		{Provider: "openai", Day: day(2025, 8, 20), Model: "gpt-4o", CostUSD: 9.0}, // outside window -> ignored
+		{Provider: "openai", Day: day(2025, 8, 10), Model: "gpt-4o", CostMicros: 500_000},
+		{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostMicros: 300_000}, // same day, another provider/model
+		{Provider: "openai", Day: day(2025, 8, 12), Model: "gpt-4o", CostMicros: 2_000_000},
+		{Provider: "openai", Day: day(2025, 8, 20), Model: "gpt-4o", CostMicros: 9_000_000}, // outside window -> ignored
 	}
 
 	days := AggregateByDay(records, w)
@@ -24,13 +24,13 @@ func TestAggregateByDay(t *testing.T) {
 		t.Fatalf("got %d days, want 5: %+v", len(days), days)
 	}
 	// chronological, zero-filled.
-	wantCost := []float64{0, 0.8, 0, 2.0, 0}
+	wantCost := []int64{0, 800_000, 0, 2_000_000, 0}
 	for i, d := range days {
 		if !d.Day.Equal(day(2025, 8, 9+i)) {
 			t.Errorf("days[%d].Day = %v", i, d.Day)
 		}
-		if d.CostUSD != wantCost[i] {
-			t.Errorf("days[%d].CostUSD = %v, want %v", i, d.CostUSD, wantCost[i])
+		if d.CostMicros != wantCost[i] {
+			t.Errorf("days[%d].CostMicros = %d, want %d", i, d.CostMicros, wantCost[i])
 		}
 	}
 }
@@ -42,8 +42,8 @@ func TestAggregateByDay_EmptyWindowOrRecords(t *testing.T) {
 		t.Fatalf("got %d days, want 3", len(days))
 	}
 	for i, d := range days {
-		if d.CostUSD != 0 {
-			t.Errorf("days[%d].CostUSD = %v, want 0", i, d.CostUSD)
+		if d.CostMicros != 0 {
+			t.Errorf("days[%d].CostMicros = %d, want 0", i, d.CostMicros)
 		}
 	}
 
@@ -56,9 +56,9 @@ func TestAggregateByDay_EmptyWindowOrRecords(t *testing.T) {
 
 func TestBarChart_Scaling(t *testing.T) {
 	days := []DayTotal{
-		{Day: day(2025, 8, 9), CostUSD: 0},     // zero -> no blocks
-		{Day: day(2025, 8, 10), CostUSD: 0.01}, // tiny nonzero (max 100) -> exactly 1 block
-		{Day: day(2025, 8, 11), CostUSD: 100},  // max -> exactly chartWidth blocks
+		{Day: day(2025, 8, 9), CostMicros: 0},            // zero -> no blocks
+		{Day: day(2025, 8, 10), CostMicros: 10_000},      // tiny nonzero (max 100) -> exactly 1 block
+		{Day: day(2025, 8, 11), CostMicros: 100_000_000}, // max -> exactly chartWidth blocks
 	}
 
 	var buf bytes.Buffer
@@ -82,8 +82,8 @@ func TestBarChart_Scaling(t *testing.T) {
 
 func TestBarChart_AllZero(t *testing.T) {
 	days := []DayTotal{
-		{Day: day(2025, 8, 9), CostUSD: 0},
-		{Day: day(2025, 8, 10), CostUSD: 0},
+		{Day: day(2025, 8, 9), CostMicros: 0},
+		{Day: day(2025, 8, 10), CostMicros: 0},
 	}
 	var buf bytes.Buffer
 	if err := BarChart(&buf, days); err != nil {
@@ -97,13 +97,13 @@ func TestBarChart_AllZero(t *testing.T) {
 func TestBarChart_Golden(t *testing.T) {
 	// 7 days: a zero day, the max ($2.00), a minimal nonzero ($0.02), per §4.2.
 	days := []DayTotal{
-		{Day: day(2025, 8, 9), CostUSD: 0},
-		{Day: day(2025, 8, 10), CostUSD: 0.5},
-		{Day: day(2025, 8, 11), CostUSD: 2.0},
-		{Day: day(2025, 8, 12), CostUSD: 0},
-		{Day: day(2025, 8, 13), CostUSD: 0.02},
-		{Day: day(2025, 8, 14), CostUSD: 1.0},
-		{Day: day(2025, 8, 15), CostUSD: 0},
+		{Day: day(2025, 8, 9), CostMicros: 0},
+		{Day: day(2025, 8, 10), CostMicros: 500_000},
+		{Day: day(2025, 8, 11), CostMicros: 2_000_000},
+		{Day: day(2025, 8, 12), CostMicros: 0},
+		{Day: day(2025, 8, 13), CostMicros: 20_000},
+		{Day: day(2025, 8, 14), CostMicros: 1_000_000},
+		{Day: day(2025, 8, 15), CostMicros: 0},
 	}
 
 	var buf bytes.Buffer

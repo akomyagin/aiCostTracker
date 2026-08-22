@@ -17,35 +17,35 @@ func TestCompareTables_Delta(t *testing.T) {
 	}{
 		{
 			name:     "growth",
-			cur:      []Row{{Provider: "anthropic", CostUSD: 3.5}},
-			prev:     []Row{{Provider: "anthropic", CostUSD: 2.0}},
+			cur:      []Row{{Provider: "anthropic", CostMicros: 3_500_000}},
+			prev:     []Row{{Provider: "anthropic", CostMicros: 2_000_000}},
 			wantLine: "TOTAL: $3.50 vs $2.00 (+$1.50, +75.0%)",
 		},
 		{
 			name:     "decline",
-			cur:      []Row{{Provider: "anthropic", CostUSD: 1.0}},
-			prev:     []Row{{Provider: "anthropic", CostUSD: 4.0}},
+			cur:      []Row{{Provider: "anthropic", CostMicros: 1_000_000}},
+			prev:     []Row{{Provider: "anthropic", CostMicros: 4_000_000}},
 			wantLine: "TOTAL: $1.00 vs $4.00 (-$3.00, -75.0%)",
 		},
 		{
 			name:     "equal",
-			cur:      []Row{{Provider: "anthropic", CostUSD: 2.0}},
-			prev:     []Row{{Provider: "anthropic", CostUSD: 2.0}},
+			cur:      []Row{{Provider: "anthropic", CostMicros: 2_000_000}},
+			prev:     []Row{{Provider: "anthropic", CostMicros: 2_000_000}},
 			wantLine: "TOTAL: $2.00 vs $2.00 (+$0.00, +0.0%)",
 		},
 		{
 			name:     "empty previous",
-			cur:      []Row{{Provider: "anthropic", CostUSD: 1.5}},
+			cur:      []Row{{Provider: "anthropic", CostMicros: 1_500_000}},
 			prev:     nil,
 			wantLine: "TOTAL: $1.50 vs $0.00 (+$1.50, n/a)",
 		},
 		{
-			// A tiny negative float delta that rounds to zero must not print
-			// as "-$0.00, -0.0%" — found in review (floating-point negative
-			// zero surfacing in formatted output).
+			// A sub-cent delta (-100 micros = -$0.0001) must snap to zero and not
+			// print as "-$0.00, -0.0%" — the negative-zero artifact this guard
+			// still prevents even though the old float rounding residue is gone.
 			name:     "negligible negative delta rounds to positive zero",
-			cur:      []Row{{Provider: "anthropic", CostUSD: 2.0}},
-			prev:     []Row{{Provider: "anthropic", CostUSD: 2.0001}},
+			cur:      []Row{{Provider: "anthropic", CostMicros: 2_000_000}},
+			prev:     []Row{{Provider: "anthropic", CostMicros: 2_000_100}},
 			wantLine: "TOTAL: $2.00 vs $2.00 (+$0.00, +0.0%)",
 		},
 	}
@@ -65,11 +65,11 @@ func TestCompareTables_Delta(t *testing.T) {
 
 func TestCompareTables_Golden(t *testing.T) {
 	cur := []Row{
-		{Provider: "anthropic", InputTokens: 250, OutputTokens: 100, CostUSD: 2.5},
-		{Provider: "openai", InputTokens: 100, OutputTokens: 40, CostUSD: 1.0},
+		{Provider: "anthropic", InputTokens: 250, OutputTokens: 100, CostMicros: 2_500_000},
+		{Provider: "openai", InputTokens: 100, OutputTokens: 40, CostMicros: 1_000_000},
 	}
 	prev := []Row{
-		{Provider: "anthropic", InputTokens: 200, OutputTokens: 80, CostUSD: 2.0},
+		{Provider: "anthropic", InputTokens: 200, OutputTokens: 80, CostMicros: 2_000_000},
 	}
 
 	var buf bytes.Buffer
