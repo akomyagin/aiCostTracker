@@ -186,6 +186,194 @@ func TestHistoryCommand_ReadsStoreNoNetwork(t *testing.T) {
 	}
 }
 
+func saveRecords(t *testing.T, store storage.Store, recs ...provider.UsageRecord) {
+	t.Helper()
+	if err := store.Save(context.Background(), provider.Snapshot{FetchedAt: time.Now(), Records: recs}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+}
+
+func TestHistoryCommand_Chart(t *testing.T) {
+	store := storage.NewFake()
+	saveRecords(t, store,
+		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 12), Model: "gpt-4o", InputTokens: 10, OutputTokens: 5, CostUSD: 0.5},
+		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt-4o", InputTokens: 20, OutputTokens: 8, CostUSD: 1.0},
+	)
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "history", "--period", "7d", "--chart"); err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if fp.fetched {
+		t.Error("history must not fetch from providers")
+	}
+	s := out.String()
+	if !strings.Contains(s, "TOTAL") {
+		t.Errorf("missing table TOTAL: %q", s)
+	}
+	if !strings.Contains(s, "CHART") {
+		t.Errorf("missing CHART header: %q", s)
+	}
+	if !strings.Contains(s, "█") {
+		t.Errorf("missing bar blocks: %q", s)
+	}
+}
+
+func TestHistoryCommand_ByModel(t *testing.T) {
+	store := storage.NewFake()
+	saveRecords(t, store,
+		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt-4o", InputTokens: 10, OutputTokens: 5, CostUSD: 0.5},
+	)
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "history", "--period", "7d", "--by-model"); err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "MODEL") || !strings.Contains(s, "gpt-4o") {
+		t.Errorf("by-model output missing MODEL/gpt-4o: %q", s)
+	}
+
+	// negative: default history (no flag) must NOT include the model column/value.
+	var out2 bytes.Buffer
+	app.Out = &out2
+	if err := run(app, "history", "--period", "7d"); err != nil {
+		t.Fatalf("history default: %v", err)
+	}
+	if strings.Contains(out2.String(), "gpt-4o") {
+		t.Errorf("default history leaked model: %q", out2.String())
+	}
+}
+
+func TestHistoryCommand_ChartAndByModelCombined(t *testing.T) {
+	// --chart and --by-model are intentionally compatible: the chart always
+	// shows daily totals while the table switches to per-model rows.
+	store := storage.NewFake()
+	saveRecords(t, store,
+		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt-4o", InputTokens: 10, OutputTokens: 5, CostUSD: 0.5},
+	)
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "history", "--period", "7d", "--chart", "--by-model"); err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if fp.fetched {
+		t.Error("history must not fetch from providers")
+	}
+	s := out.String()
+	if !strings.Contains(s, "MODEL") || !strings.Contains(s, "gpt-4o") {
+		t.Errorf("missing per-model table: %q", s)
+	}
+	if !strings.Contains(s, "CHART") || !strings.Contains(s, "█") {
+		t.Errorf("missing chart: %q", s)
+	}
+}
+
+func TestHistoryCommand_Compare(t *testing.T) {
+	// now = 2025-08-15. --period month: current [2025-08-01, 2025-08-16),
+	// previous full July [2025-07-01, 2025-08-01).
+	store := storage.NewFake()
+	saveRecords(t, store,
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 3.0},
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 7, 15), Model: "claude", CostUSD: 2.0},
+	)
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "history", "--period", "month", "--compare"); err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if fp.fetched {
+		t.Error("history must not fetch from providers")
+	}
+	s := out.String()
+	if !strings.Contains(s, "CURRENT [") || !strings.Contains(s, "PREVIOUS [") {
+		t.Errorf("missing period labels: %q", s)
+	}
+	if !strings.Contains(s, "TOTAL: $3.00 vs $2.00 (+$1.00, +50.0%)") {
+		t.Errorf("wrong delta line: %q", s)
+	}
+}
+
+func TestHistoryCommand_CompareEmptyPrevious(t *testing.T) {
+	store := storage.NewFake()
+	saveRecords(t, store,
+		provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 3.0},
+	)
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "history", "--period", "month", "--compare"); err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if !strings.Contains(out.String(), "n/a") {
+		t.Errorf("empty previous should give n/a percent: %q", out.String())
+	}
+}
+
+func TestHistoryCommand_CompareConflictingFlags(t *testing.T) {
+	store := storage.NewFake()
+	saveRecords(t, store, provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 1.0})
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+
+	for _, flag := range []string{"--by-model", "--chart"} {
+		app, _, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+		err := run(app, "history", "--period", "month", "--compare", flag)
+		if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+			t.Errorf("--compare %s: want cannot-be-combined error, got %v", flag, err)
+		}
+	}
+}
+
+func TestHistoryCommand_NoDataWithFlags(t *testing.T) {
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+	app, out, _ := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "history", "--period", "7d", "--chart"); err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "No stored history for this period.") {
+		t.Errorf("missing no-data message: %q", s)
+	}
+	if strings.Contains(s, "█") || strings.Contains(s, "CURRENT") {
+		t.Errorf("no-data output printed chart/compare: %q", s)
+	}
+}
+
+func TestReportCommand_ByModel(t *testing.T) {
+	store := storage.NewFake()
+	fp := &fakeProvider{
+		id: "anthropic",
+		records: []provider.UsageRecord{
+			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude-opus", InputTokens: 100, OutputTokens: 40, CostUSD: 1.25},
+			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude-haiku", InputTokens: 30, OutputTokens: 10, CostUSD: 0.20},
+		},
+	}
+	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "report", "--period", "today", "--by-model"); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "claude-opus") || !strings.Contains(s, "claude-haiku") {
+		t.Errorf("by-model report missing both models: %q", s)
+	}
+
+	// negative: default report collapses to one provider row (no model column).
+	var out2 bytes.Buffer
+	app.Out = &out2
+	if err := run(app, "report", "--period", "today"); err != nil {
+		t.Fatalf("report default: %v", err)
+	}
+	if strings.Contains(out2.String(), "claude-opus") {
+		t.Errorf("default report leaked model: %q", out2.String())
+	}
+}
+
 func TestReportCommand_AdminKeyHintOnAuthError(t *testing.T) {
 	// A 401/403 from the provider must trigger the admin-vs-model-key hint, and
 	// the surfaced error must never contain the admin key itself.

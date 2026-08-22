@@ -1,0 +1,5 @@
+PROVIDER   MODEL      INPUT TOKENS  OUTPUT TOKENS  COST (USD)
+anthropic  claude     250           100            $2.50
+openai     (unknown)  10            5              $0.10
+openai     gpt-4o     100           40             $1.00
+TOTAL                 360           145            $3.60

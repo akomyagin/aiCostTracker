@@ -31,7 +31,10 @@ func adminKeyHintFor(err error) string {
 // reportCmd fetches each enabled provider's usage for a period, persists the
 // snapshots, aggregates and prints a table.
 func (a *App) reportCmd() *cobra.Command {
-	var period string
+	var (
+		period  string
+		byModel bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "report",
@@ -43,17 +46,19 @@ func (a *App) reportCmd() *cobra.Command {
 		Example: "  aicost report                 # last 30 days (default)\n" +
 			"  aicost report --period=7d     # last 7 days\n" +
 			"  aicost report --period=month  # 1st of this month through today\n" +
-			"  aicost report --period=today  # just today",
+			"  aicost report --period=today  # just today\n" +
+			"  aicost report --period=month --by-model  # break down by (provider, model)",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return a.runReport(cmd, period)
+			return a.runReport(cmd, period, byModel)
 		},
 	}
 	cmd.Flags().StringVar(&period, "period", "30d", "period to report: Nd (e.g. 7d), month, or today")
+	cmd.Flags().BoolVar(&byModel, "by-model", false, "break the table down by (provider, model)")
 	return cmd
 }
 
-func (a *App) runReport(cmd *cobra.Command, period string) error {
+func (a *App) runReport(cmd *cobra.Command, period string, byModel bool) error {
 	ctx := cmd.Context()
 
 	cfg, err := a.LoadConfig()
@@ -97,15 +102,22 @@ func (a *App) runReport(cmd *cobra.Command, period string) error {
 		all = append(all, snap.Records...)
 	}
 
-	rows := report.Aggregate(all)
-	if len(rows) == 0 {
+	if len(report.Aggregate(all)) == 0 {
 		// report just fetched every enabled provider for this window, so an
 		// empty result authoritatively means zero usage — not "not fetched".
 		fmt.Fprintln(cmd.OutOrStdout(), "No usage data for this period.")
 		return nil
 	}
-	if err := report.Table(cmd.OutOrStdout(), rows); err != nil {
-		return fmt.Errorf("render table: %w", err)
+
+	out := cmd.OutOrStdout()
+	if byModel {
+		if err := report.ModelTable(out, report.AggregateByModel(all)); err != nil {
+			return fmt.Errorf("render table: %w", err)
+		}
+	} else {
+		if err := report.Table(out, report.Aggregate(all)); err != nil {
+			return fmt.Errorf("render table: %w", err)
+		}
 	}
 	return nil
 }
