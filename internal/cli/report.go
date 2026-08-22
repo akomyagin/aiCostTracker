@@ -98,6 +98,12 @@ func (a *App) runReport(cmd *cobra.Command, period string) error {
 	}
 
 	rows := report.Aggregate(all)
+	if len(rows) == 0 {
+		// report just fetched every enabled provider for this window, so an
+		// empty result authoritatively means zero usage — not "not fetched".
+		fmt.Fprintln(cmd.OutOrStdout(), "No usage data for this period.")
+		return nil
+	}
 	if err := report.Table(cmd.OutOrStdout(), rows); err != nil {
 		return fmt.Errorf("render table: %w", err)
 	}

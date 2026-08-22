@@ -56,6 +56,12 @@ func (a *App) runHistory(cmd *cobra.Command, period string) error {
 	}
 
 	rows := report.Aggregate(records)
+	if len(rows) == 0 {
+		// history never touches the network, so it cannot distinguish "zero
+		// spend" from "not fetched yet" — say so plainly instead of asserting.
+		fmt.Fprintln(cmd.OutOrStdout(), "No stored history for this period. Run \"aicost report\" for this period to see whether it's zero spend or just not fetched yet.")
+		return nil
+	}
 	if err := report.Table(cmd.OutOrStdout(), rows); err != nil {
 		return fmt.Errorf("render table: %w", err)
 	}
