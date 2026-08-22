@@ -17,6 +17,7 @@ func (a *App) historyCmd() *cobra.Command {
 		byModel     bool
 		compare     bool
 		failOnAlert bool
+		format      string
 	)
 
 	cmd := &cobra.Command{
@@ -31,7 +32,7 @@ func (a *App) historyCmd() *cobra.Command {
 			"other two.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return a.runHistory(cmd, period, chart, byModel, compare, failOnAlert)
+			return a.runHistory(cmd, period, chart, byModel, compare, failOnAlert, format)
 		},
 	}
 	cmd.Flags().StringVar(&period, "period", "30d", "period to show: Nd (e.g. 7d), month, or today")
@@ -39,14 +40,24 @@ func (a *App) historyCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&byModel, "by-model", false, "break the table down by (provider, model)")
 	cmd.Flags().BoolVar(&compare, "compare", false, "compare with the previous period of the same kind")
 	cmd.Flags().BoolVar(&failOnAlert, "fail-on-alert", false, "exit non-zero when spend exceeds alert.monthly_usd")
+	cmd.Flags().StringVar(&format, "format", "table", "output format: table or json")
 	return cmd
 }
 
-func (a *App) runHistory(cmd *cobra.Command, period string, chart, byModel, compare, failOnAlert bool) error {
+func (a *App) runHistory(cmd *cobra.Command, period string, chart, byModel, compare, failOnAlert bool, format string) error {
 	ctx := cmd.Context()
 
+	if err := validateFormat(format); err != nil {
+		return err
+	}
 	if compare && (byModel || chart) {
 		return fmt.Errorf("--compare cannot be combined with --by-model or --chart")
+	}
+	// JSON currently supports only the collapsed Aggregate->Row path (symmetric
+	// to the default table); the per-model, chart and compare views have no JSON
+	// shape yet.
+	if format == "json" && (byModel || chart || compare) {
+		return fmt.Errorf("--format=json cannot be combined with --by-model, --chart or --compare")
 	}
 
 	cfg, err := a.LoadConfig()
@@ -79,6 +90,11 @@ func (a *App) runHistory(cmd *cobra.Command, period string, chart, byModel, comp
 	if len(report.Aggregate(records)) == 0 {
 		// history never touches the network, so it cannot distinguish "zero
 		// spend" from "not fetched yet" — say so plainly instead of asserting.
+		if format == "json" {
+			// Keep the output machine-readable regardless of the result: emit a
+			// valid empty document instead of the human-readable message.
+			return report.JSON(out, nil)
+		}
 		fmt.Fprintln(out, "No stored history for this period. Run \"aicost report\" for this period to see whether it's zero spend or just not fetched yet.")
 		return nil
 	}
@@ -87,6 +103,13 @@ func (a *App) runHistory(cmd *cobra.Command, period string, chart, byModel, comp
 	// format; under --compare the previous period is irrelevant to the threshold.
 	cur := report.Aggregate(records)
 	total := sumCost(cur)
+
+	if format == "json" {
+		if err := report.JSON(out, cur); err != nil {
+			return fmt.Errorf("render json: %w", err)
+		}
+		return checkAlert(cmd, cfg.Alert.MonthlyUSD, total, failOnAlert)
+	}
 
 	if compare {
 		prevWin, err := previousWindow(period, a.Now())

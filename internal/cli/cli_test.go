@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -591,6 +592,202 @@ func TestHistoryCommand_AlertCompareNoAlertFromPrevious(t *testing.T) {
 	}
 	if strings.Contains(errOut.String(), "ALERT") {
 		t.Errorf("alert must not fire off previous-period total, got stderr=%q", errOut.String())
+	}
+}
+
+// jsonDoc mirrors the report.JSON contract for content-level test assertions.
+type jsonDoc struct {
+	SchemaVersion int `json:"schema_version"`
+	Rows          []struct {
+		Provider     string  `json:"provider"`
+		InputTokens  int64   `json:"input_tokens"`
+		OutputTokens int64   `json:"output_tokens"`
+		CostUSD      float64 `json:"cost_usd"`
+	} `json:"rows"`
+	Total struct {
+		InputTokens  int64   `json:"input_tokens"`
+		OutputTokens int64   `json:"output_tokens"`
+		CostUSD      float64 `json:"cost_usd"`
+	} `json:"total"`
+}
+
+func TestReportCommand_FormatJSON(t *testing.T) {
+	store := storage.NewFake()
+	fp := &fakeProvider{
+		id: "anthropic",
+		records: []provider.UsageRecord{
+			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostUSD: 1.25},
+		},
+	}
+	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "report", "--period", "today", "--format", "json"); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+
+	var doc jsonDoc
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, out.String())
+	}
+	if doc.SchemaVersion != 1 {
+		t.Errorf("schema_version = %d, want 1", doc.SchemaVersion)
+	}
+	if len(doc.Rows) != 1 || doc.Rows[0].Provider != "anthropic" || doc.Rows[0].CostUSD != 1.25 {
+		t.Errorf("rows = %+v", doc.Rows)
+	}
+	if doc.Rows[0].InputTokens != 100 || doc.Rows[0].OutputTokens != 40 {
+		t.Errorf("row tokens = %+v", doc.Rows[0])
+	}
+	if doc.Total.CostUSD != 1.25 || doc.Total.InputTokens != 100 || doc.Total.OutputTokens != 40 {
+		t.Errorf("total = %+v", doc.Total)
+	}
+	// No human-readable table must leak into JSON output.
+	if strings.Contains(out.String(), "PROVIDER") || strings.Contains(out.String(), "TOTAL\t") {
+		t.Errorf("table leaked into json output: %q", out.String())
+	}
+}
+
+func TestHistoryCommand_FormatJSON(t *testing.T) {
+	store := storage.NewFake()
+	saveRecords(t, store,
+		provider.UsageRecord{Provider: "openai", Day: day(2025, 8, 14), Model: "gpt", InputTokens: 10, OutputTokens: 5, CostUSD: 0.9},
+	)
+	// provider that fails if called — history must not touch the network.
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+	app, out, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "history", "--period", "7d", "--format", "json"); err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if fp.fetched {
+		t.Error("history must not fetch from providers")
+	}
+
+	var doc jsonDoc
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, out.String())
+	}
+	if doc.SchemaVersion != 1 {
+		t.Errorf("schema_version = %d, want 1", doc.SchemaVersion)
+	}
+	if len(doc.Rows) != 1 || doc.Rows[0].Provider != "openai" || doc.Rows[0].CostUSD != 0.9 {
+		t.Errorf("rows = %+v", doc.Rows)
+	}
+	if doc.Total.CostUSD != 0.9 {
+		t.Errorf("total = %+v", doc.Total)
+	}
+}
+
+func TestReportCommand_FormatJSONByModelConflict(t *testing.T) {
+	fp := &fakeProvider{id: "anthropic", records: nil}
+	app, _, _ := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+	err := run(app, "report", "--period", "today", "--format", "json", "--by-model")
+	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("want cannot-be-combined error, got %v", err)
+	}
+	// Validation happens before any fetch.
+	if fp.fetched {
+		t.Error("provider was fetched despite invalid flag combination")
+	}
+}
+
+func TestHistoryCommand_FormatJSONConflictingFlags(t *testing.T) {
+	store := storage.NewFake()
+	saveRecords(t, store, provider.UsageRecord{Provider: "anthropic", Day: day(2025, 8, 10), Model: "claude", CostUSD: 1.0})
+	for _, flag := range []string{"--by-model", "--chart", "--compare"} {
+		fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+		app, _, _ := testApp(enabledCfg(), store, map[string]provider.ProviderUsageSource{"anthropic": fp})
+		err := run(app, "history", "--period", "month", "--format", "json", flag)
+		if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+			t.Errorf("--format=json %s: want cannot-be-combined error, got %v", flag, err)
+		}
+	}
+}
+
+func TestReportCommand_FormatBogus(t *testing.T) {
+	fp := &fakeProvider{id: "anthropic", records: nil}
+	app, _, _ := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+	err := run(app, "report", "--period", "today", "--format", "bogus")
+	if err == nil || !strings.Contains(err.Error(), "invalid --format") {
+		t.Fatalf("want invalid-format error, got %v", err)
+	}
+	// The error must list the allowed values.
+	if !strings.Contains(err.Error(), "table") || !strings.Contains(err.Error(), "json") {
+		t.Errorf("error missing allowed-values list: %q", err.Error())
+	}
+	if fp.fetched {
+		t.Error("provider was fetched despite invalid format")
+	}
+}
+
+func TestReportCommand_FormatJSONNoData(t *testing.T) {
+	// report fetched zero records: with --format=json emit a valid empty
+	// document, not the human-readable "No usage data" message.
+	fp := &fakeProvider{id: "anthropic", records: nil}
+	app, out, _ := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "report", "--period", "today", "--format", "json"); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	if strings.Contains(out.String(), "No usage data") {
+		t.Errorf("json no-data output leaked human-readable message: %q", out.String())
+	}
+	var doc jsonDoc
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("no-data output is not valid JSON: %v\n%s", err, out.String())
+	}
+	if doc.SchemaVersion != 1 || len(doc.Rows) != 0 || doc.Total.CostUSD != 0 {
+		t.Errorf("empty json doc = %+v", doc)
+	}
+}
+
+func TestHistoryCommand_FormatJSONNoData(t *testing.T) {
+	fp := &fakeProvider{id: "anthropic", err: errors.New("network should not be used")}
+	app, out, _ := testApp(enabledCfg(), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	if err := run(app, "history", "--period", "7d", "--format", "json"); err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if strings.Contains(out.String(), "No stored history") {
+		t.Errorf("json no-data output leaked human-readable message: %q", out.String())
+	}
+	var doc jsonDoc
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("no-data output is not valid JSON: %v\n%s", err, out.String())
+	}
+	if doc.SchemaVersion != 1 || len(doc.Rows) != 0 {
+		t.Errorf("empty json doc = %+v", doc)
+	}
+}
+
+func TestReportCommand_FormatJSONAlert(t *testing.T) {
+	// Alert must behave identically under --format=json: ALERT to stderr, a
+	// non-zero exit under --fail-on-alert, and stdout stays valid JSON.
+	fp := &fakeProvider{
+		id: "anthropic",
+		records: []provider.UsageRecord{
+			{Provider: "anthropic", Day: day(2025, 8, 15), Model: "claude", InputTokens: 100, OutputTokens: 40, CostUSD: 5.0},
+		},
+	}
+	app, out, errOut := testApp(alertCfg(4.0), storage.NewFake(), map[string]provider.ProviderUsageSource{"anthropic": fp})
+
+	err := run(app, "report", "--period", "today", "--format", "json", "--fail-on-alert")
+	if err == nil || !strings.Contains(err.Error(), "monthly alert threshold exceeded") {
+		t.Fatalf("want threshold-exceeded error, got %v", err)
+	}
+	if !strings.Contains(errOut.String(), "ALERT: total spend $5.00 exceeds monthly threshold $4.00") {
+		t.Errorf("missing ALERT in stderr: %q", errOut.String())
+	}
+	// stdout must remain valid, un-corrupted JSON.
+	if strings.Contains(out.String(), "ALERT") {
+		t.Errorf("alert leaked into stdout: %q", out.String())
+	}
+	var doc jsonDoc
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("stdout is not valid JSON under alert: %v\n%s", err, out.String())
+	}
+	if doc.Total.CostUSD != 5.0 {
+		t.Errorf("total = %+v", doc.Total)
 	}
 }
 

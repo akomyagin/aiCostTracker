@@ -28,6 +28,17 @@ func adminKeyHintFor(err error) string {
 	return ""
 }
 
+// validateFormat rejects unknown --format values. Call it before any
+// network/DB work so a typo fails fast with the list of allowed formats.
+func validateFormat(format string) error {
+	switch format {
+	case "table", "json":
+		return nil
+	default:
+		return fmt.Errorf("invalid --format %q: must be one of: table, json", format)
+	}
+}
+
 // sumCost returns the total CostUSD across aggregated rows.
 func sumCost(rows []report.Row) float64 {
 	var t float64
@@ -60,6 +71,7 @@ func (a *App) reportCmd() *cobra.Command {
 		period      string
 		byModel     bool
 		failOnAlert bool
+		format      string
 	)
 
 	cmd := &cobra.Command{
@@ -73,20 +85,31 @@ func (a *App) reportCmd() *cobra.Command {
 			"  aicost report --period=7d     # last 7 days\n" +
 			"  aicost report --period=month  # 1st of this month through today\n" +
 			"  aicost report --period=today  # just today\n" +
-			"  aicost report --period=month --by-model  # break down by (provider, model)",
+			"  aicost report --period=month --by-model  # break down by (provider, model)\n" +
+			"  aicost report --format=json               # machine-readable output",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return a.runReport(cmd, period, byModel, failOnAlert)
+			return a.runReport(cmd, period, byModel, failOnAlert, format)
 		},
 	}
 	cmd.Flags().StringVar(&period, "period", "30d", "period to report: Nd (e.g. 7d), month, or today")
 	cmd.Flags().BoolVar(&byModel, "by-model", false, "break the table down by (provider, model)")
 	cmd.Flags().BoolVar(&failOnAlert, "fail-on-alert", false, "exit non-zero when spend exceeds alert.monthly_usd")
+	cmd.Flags().StringVar(&format, "format", "table", "output format: table or json")
 	return cmd
 }
 
-func (a *App) runReport(cmd *cobra.Command, period string, byModel, failOnAlert bool) error {
+func (a *App) runReport(cmd *cobra.Command, period string, byModel, failOnAlert bool, format string) error {
 	ctx := cmd.Context()
+
+	if err := validateFormat(format); err != nil {
+		return err
+	}
+	// JSON currently supports only the collapsed Aggregate->Row path (symmetric
+	// to the default table); it is incompatible with the per-model breakdown.
+	if format == "json" && byModel {
+		return fmt.Errorf("--format=json cannot be combined with --by-model")
+	}
 
 	cfg, err := a.LoadConfig()
 	if err != nil {
@@ -129,18 +152,28 @@ func (a *App) runReport(cmd *cobra.Command, period string, byModel, failOnAlert 
 		all = append(all, snap.Records...)
 	}
 
+	out := cmd.OutOrStdout()
+
 	if len(report.Aggregate(all)) == 0 {
 		// report just fetched every enabled provider for this window, so an
 		// empty result authoritatively means zero usage — not "not fetched".
-		fmt.Fprintln(cmd.OutOrStdout(), "No usage data for this period.")
+		if format == "json" {
+			// Keep the output machine-readable regardless of the result: emit a
+			// valid empty document instead of the human-readable message.
+			return report.JSON(out, nil)
+		}
+		fmt.Fprintln(out, "No usage data for this period.")
 		return nil
 	}
 
 	rows := report.Aggregate(all)
 	total := sumCost(rows)
 
-	out := cmd.OutOrStdout()
-	if byModel {
+	if format == "json" {
+		if err := report.JSON(out, rows); err != nil {
+			return fmt.Errorf("render json: %w", err)
+		}
+	} else if byModel {
 		if err := report.ModelTable(out, report.AggregateByModel(all)); err != nil {
 			return fmt.Errorf("render table: %w", err)
 		}

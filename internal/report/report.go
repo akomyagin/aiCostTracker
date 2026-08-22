@@ -7,6 +7,7 @@
 package report
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -19,10 +20,10 @@ import (
 // the reported window. Per-model breakdown is a Фаза-2 concern; MVP rolls each
 // provider's records into a single row plus a grand total.
 type Row struct {
-	Provider     string
-	InputTokens  int64
-	OutputTokens int64
-	CostUSD      float64
+	Provider     string  `json:"provider"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
 }
 
 // Aggregate collapses raw per-day records into one Row per provider, summing
@@ -82,6 +83,54 @@ func Table(w io.Writer, rows []Row) error {
 	}
 
 	return tw.Flush()
+}
+
+// jsonTotal is the grand-total block of the JSON document: the same numeric
+// fields as Row but without a provider, summed across every row.
+type jsonTotal struct {
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+}
+
+// jsonDoc is the machine-readable contract written by JSON. Field order here is
+// the field order in the output (encoding/json preserves struct order).
+type jsonDoc struct {
+	SchemaVersion int       `json:"schema_version"`
+	Rows          []Row     `json:"rows"`
+	Total         jsonTotal `json:"total"`
+}
+
+// JSON writes rows as a machine-readable schema_version-tagged document.
+// schema_version starts at 1; bump it (not the shape) on any future breaking
+// change to this contract, per docs/POST_MVP_PLAN.md §P4.
+//
+// The document mirrors the default Table: one Row per provider (sorted by
+// Aggregate) plus a grand total. rows serializes as [] (never null) on empty
+// input. Output is deterministic so it can be golden-tested byte-for-byte.
+func JSON(w io.Writer, rows []Row) error {
+	// Copy into a freshly allocated slice so a nil input still marshals to []
+	// rather than null, keeping the contract stable for machine consumers.
+	out := make([]Row, 0, len(rows))
+	out = append(out, rows...)
+
+	var total jsonTotal
+	for _, r := range out {
+		total.InputTokens += r.InputTokens
+		total.OutputTokens += r.OutputTokens
+		total.CostUSD += r.CostUSD
+	}
+
+	doc := jsonDoc{SchemaVersion: 1, Rows: out, Total: total}
+	b, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(b); err != nil {
+		return err
+	}
+	_, err = w.Write([]byte("\n"))
+	return err
 }
 
 // ModelRow is one aggregated line of a per-model report: total spend/usage for
