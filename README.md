@@ -190,6 +190,9 @@ providers:
 - [`docs/TECHNICAL_PLAN.md`](docs/TECHNICAL_PLAN.md) — стек, архитектура, порт-адаптер, Этапы.
 - [`docs/API_NOTES.md`](docs/API_NOTES.md) — реальные форматы usage/cost API провайдеров (Anthropic, OpenAI, OpenRouter).
 - [`docs/POST_MVP_PLAN.md`](docs/POST_MVP_PLAN.md) — Фаза 2 и далее.
+- [`docs/research/2026-09-market-research.md`](docs/research/2026-09-market-research.md) —
+  рыночное исследование конкурентов (self-hosted-аналоги, LLM-шлюзы,
+  observability/FinOps-платформы) и применимость их фич к проекту.
 
 ## Лицензия
 
