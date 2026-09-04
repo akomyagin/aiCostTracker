@@ -117,8 +117,11 @@ config.Load → для каждого enabled-провайдера: provider.Fet
 4. **Готовую стоимость в USD отдают оба** (Anthropic `cost_report.amount` строкой,
    OpenAI `costs.amount.value` числом) — клиентская таблица цен для MVP не нужна.
 
-Каждый адаптер (`anthropic.go`, `openai.go`) тянет **стоимость из cost-эндпоинта**
-и **токены из usage-эндпоинта**, мёржит по `(day, model)` в `[]UsageRecord`.
+Адаптеры Anthropic/OpenAI (`anthropic.go`, `openai.go`) тянут **стоимость из
+cost-эндпоинта** и **токены из usage-эндпоинта** двумя запросами, мёржат по
+`(day, model)` в `[]UsageRecord`. OpenRouter (Этап 5, `openrouter.go`) —
+исключение: единый `POST /api/v1/analytics/query` отдаёт и стоимость, и токены за
+один запрос (`API_NOTES.md §3`).
 
 ## 5. Схема конфигурации
 
@@ -128,7 +131,7 @@ Admin-ключи можно задать и через окружение, чт�
 
 ```yaml
 # ~/.config/aicost/config.yaml
-http_timeout: 30s
+http_timeout: 30s        # ВНИМАНИЕ: сейчас не подключено — таймаут всегда 30s (техдолг, см. ниже)
 max_retries: 4
 db_path: ""              # пусто = os.UserConfigDir()/aicost/history.db
 
@@ -153,6 +156,13 @@ providers:
 Соответствует типам в `internal/config/config.go` (`Config`, `ProviderConfig`,
 `Config.Alert.MonthlyUSD`). Ключ `providers.<id>` совпадает с
 `ProviderUsageSource.ID()`; `knownProviders` = `anthropic`, `openai`, `openrouter`.
+
+> **Известное расхождение (техдолг):** поле `http_timeout` в текущей реализации
+> **не подключено** — фабрика провайдеров не прокидывает его в HTTP-клиент, и
+> таймаут всегда фиксирован 30s (хардкод в `Options.httpDoer`,
+> `internal/provider/adapter.go`). Значение из конфига эффекта не имеет.
+> Подробности и кандидат-фикс — `POST_MVP_PLAN.md`, раздел «Техдолг: поле
+> конфига `http_timeout` не подключено к HTTP-клиенту».
 
 ## 6. Разбивка по Этапам
 

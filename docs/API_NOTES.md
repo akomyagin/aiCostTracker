@@ -1,10 +1,11 @@
 # API_NOTES — реальные usage/cost API провайдеров (Этап 1)
 
 > Верификация допущений `[ASSUMPTION]`/`[TODO уточнить в Этапе 1]` из
-> [`TECHNICAL_PLAN.md §4`](./TECHNICAL_PLAN.md). Проверено по живой документации
-> **2026-07-08**. Здесь зафиксированы **факты**: пути эндпоинтов, авторизация,
-> параметры, форма ответа. Адаптеры `internal/provider/{anthropic,openai}.go`
-> реализованы по этим данным.
+> [`TECHNICAL_PLAN.md §4`](./TECHNICAL_PLAN.md). Anthropic и OpenAI (§1–§2)
+> проверены по живой документации **2026-07-08**; OpenRouter (§3) добавлен на
+> Этапе 5 и проверен **2026-08-22**. Здесь зафиксированы **факты**: пути
+> эндпоинтов, авторизация, параметры, форма ответа. Адаптеры
+> `internal/provider/{anthropic,openai,openrouter}.go` реализованы по этим данным.
 
 ---
 
@@ -98,8 +99,10 @@ Query-параметры:
 ```
 Пагинация та же (`has_more`/`next_page`).
 
-Наш `UsageRecord.InputTokens` = `uncached_input_tokens` (+ кэш-токены, если нужно
-считать полный ввод); `OutputTokens` = `output_tokens`.
+Наш `UsageRecord.InputTokens` = `uncached_input_tokens + cache_read_input_tokens`
+(полный оплачиваемый ввод; так реализовано в `anthropic.go`, `fetchTokens`);
+`OutputTokens` = `output_tokens`. Токены `cache_creation.*` в подсчёт ввода
+**не** включаются.
 
 ### 1.4 Как адаптер строит `Snapshot`
 
@@ -268,7 +271,8 @@ Bucket: `{ "object": "bucket", "start_time", "end_time", "results": [...] }`;
 ### 3.5 Как адаптер строит `Snapshot`
 
 - **Один** запрос вместо cost+usage-пары: из строк заполняются обе мапы
-  `map[dayModel]float64` (стоимость) и `map[dayModel]tokenCounts` (токены), затем
+  `map[dayModel]int64` (стоимость в микро-USD, Этап 9) и
+  `map[dayModel]tokenCounts` (токены), затем
   общий `mergeCostsAndTokens` даёт детерминированно отсортированный
   `[]UsageRecord` по `(day, model)`.
 - **Пагинации курсором нет** — только `limit` + `metadata.truncated`. Дотянуть

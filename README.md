@@ -145,7 +145,7 @@ JSON в stdout не искажает.
 
 ```yaml
 # ~/.config/aicost/config.yaml
-http_timeout: 30s
+http_timeout: 30s        # ВНИМАНИЕ: сейчас не подключено — таймаут всегда 30s (техдолг, см. POST_MVP_PLAN.md)
 max_retries: 4
 db_path: ""              # пусто = os.UserConfigDir()/aicost/history.db
 
