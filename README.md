@@ -145,7 +145,7 @@ JSON в stdout не искажает.
 
 ```yaml
 # ~/.config/aicost/config.yaml
-http_timeout: 30s
+http_timeout: 30s        # ВНИМАНИЕ: сейчас не подключено — таймаут всегда 30s (техдолг, см. POST_MVP_PLAN.md)
 max_retries: 4
 db_path: ""              # пусто = os.UserConfigDir()/aicost/history.db
 
@@ -190,6 +190,9 @@ providers:
 - [`docs/TECHNICAL_PLAN.md`](docs/TECHNICAL_PLAN.md) — стек, архитектура, порт-адаптер, Этапы.
 - [`docs/API_NOTES.md`](docs/API_NOTES.md) — реальные форматы usage/cost API провайдеров (Anthropic, OpenAI, OpenRouter).
 - [`docs/POST_MVP_PLAN.md`](docs/POST_MVP_PLAN.md) — Фаза 2 и далее.
+- [`docs/research/2026-09-market-research.md`](docs/research/2026-09-market-research.md) —
+  рыночное исследование конкурентов (self-hosted-аналоги, LLM-шлюзы,
+  observability/FinOps-платформы) и применимость их фич к проекту.
 
 ## Лицензия
 
